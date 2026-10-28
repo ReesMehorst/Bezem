@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem or an unexpected deletion (private)
+    url: https://github.com/ReesMehorst/Bezem/security/advisories/new
+    about: >-
+      Security bugs, and any file deleted outside what the preview showed, outside an allowed
+      folder, or through a link or junction. Please report these privately, not in a public issue.
+  - name: Security policy
+    url: https://github.com/ReesMehorst/Bezem/blob/main/SECURITY.md
+    about: What counts as a security bug, response targets, and what to do if you lost data.

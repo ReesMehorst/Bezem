@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+title: "feature: "
+labels: ["type: feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bezem follows five principles: safe by default, transparent, zero overhead, zero telemetry,
+        and honest ([PLAN.md §1](https://github.com/ReesMehorst/Bezem/blob/main/docs/PLAN.md#1-principles-non-negotiable)).
+        Requests that break one of them, or that are on the
+        [out-of-scope list](https://github.com/ReesMehorst/Bezem/blob/main/docs/PLAN.md#explicitly-out-of-scope)
+        (for example registry cleaning or prefetch clearing), will be closed.
+
+        Want a new cleaner? Use the "New cleaner" form instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what stops you today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Bezem do? Command-line flags, desktop app changes, or both.
+    validations:
+      required: true
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Principles this might touch
+      description: Tick any principle this request could affect, and explain below.
+      options:
+        - label: Safe by default (preview first, no links or junctions, allowlisted folders only)
+        - label: Transparent (readable definitions, visible paths, local deletion log)
+        - label: Zero overhead (no background service, tray icon, auto-start or automatic scans)
+        - label: Zero telemetry (no network calls)
+        - label: Honest (no scare wording, scores or "boosters")
+  - type: textarea
+    id: notes
+    attributes:
+      label: Alternatives and notes
+      description: Other approaches you considered, and how the ticked principles stay intact.
