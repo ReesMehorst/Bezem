@@ -21,7 +21,7 @@ These rules shape every decision below. A feature that breaks one doesn't ship.
 - Compiles to a single native `.exe` (~2–5 MB) with no runtime to install (unlike .NET or Electron).
 - Memory safety matters for a tool that deletes files with elevated rights.
 - Strong Windows support through the `windows` crate (Win32 APIs for the Recycle Bin, known folders, reparse points, restart manager, services).
-- Fast parallel directory walking (`rayon`, `jwalk`).
+- Fast parallel directory walking (`rayon` with a small handle-relative walker; see ARCHITECTURE.md).
 
 **Workspace layout**
 
@@ -82,7 +82,7 @@ Load definitions → Validate → Scan (parallel, read-only) → Preview report
 5. **App-running check**: a browser cleaner refuses to run while that browser is open (and offers to wait).
 6. **Delete modes**: permanent delete (default for caches) or move to the Recycle Bin (selectable, and the default for privacy items such as history).
 7. **Least privilege**: runs unelevated. Cleaners that need admin rights are grouped, and the app relaunches elevated only for those, with a clear prompt.
-8. **Deletion log**: a plain-text or JSON log in `%LOCALAPPDATA%\Bezem\logs` listing every removed path. It is local and never uploaded.
+8. **Deletion log**: a JSON Lines log in `%LOCALAPPDATA%\Bezem\logs` listing every removed path. It is local and never uploaded.
 
 ## 4. Cleaner catalog
 
@@ -101,7 +101,7 @@ Load definitions → Validate → Scan (parallel, read-only) → Preview report
 - Chromium family: Chrome, Edge, Brave, Vivaldi, Opera (multi-profile aware)
 - Firefox (multi-profile, reads `profiles.ini`)
 - Cache and code cache: on by default
-- Cookies, history, session data, saved form data: **opt-in**, with a clear warning ("you will be logged out of websites")
+- Cookies, history, session data, saved form data: **opt-in** (Firefox history is post-1.0: it shares `places.sqlite` with bookmarks), with a clear warning ("you will be logged out of websites")
 
 ### v1.0: Privacy (opt-in)
 - Recent documents and jump lists
@@ -146,7 +146,7 @@ Exit codes are documented, so the CLI works in scripts and Task Scheduler.
 - **Integration tests** on a GitHub Actions `windows-latest` runner: build a fake tree in a temp folder (including junctions pointing outside, locked files, read-only files) and assert that only the expected files disappear.
 - **Definition validator**: CI rejects any cleaner TOML whose roots fall outside the allowlist.
 - **Fuzzing** (`cargo-fuzz`) on path normalization and definition parsing.
-- **Lints**: `cargo clippy -D warnings`, `cargo fmt --check`, `cargo deny` (licenses and advisories), `#![forbid(unsafe_code)]` everywhere except a small, reviewed `win32` module.
+- **Lints**: `cargo clippy -D warnings`, `cargo fmt --check`, `cargo deny` (licenses and advisories), `#![forbid(unsafe_code)]` in all crates except `bezem-core`, which uses `deny` and allows `unsafe` only in a small, reviewed `win32` module.
 - **Benchmark**: a scan of a typical profile should finish in under 2 seconds. Track this in CI to catch regressions.
 
 ## 7. Distribution and trust
@@ -170,7 +170,16 @@ Exit codes are documented, so the CLI works in scripts and Task Scheduler.
 | **M7: 1.0 release** (week 12) | Code signing, winget/scoop, docs site, translations (EN and NL first) | Signed 1.0 on GitHub Releases and winget |
 | **Post-1.0** | Developer/app cleaners, community definitions, saved profiles, optional Task Scheduler integration (user-created, never automatic) | Driven by issues |
 
-## 9. Open decisions
+## 9. Detailed plans
+
+| Document | Contents |
+|---|---|
+| [FEATURES.md](FEATURES.md) | Feature specification: IDs, acceptance criteria, priorities, exact paths, CLI reference and exit codes |
+| [DESIGN.md](DESIGN.md) | UI/UX and visual design: brand, tokens, wireframes, flows, microcopy, accessibility, CLI output |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Technical design: crate APIs, TOML schema, path resolution, safety algorithm, elevation, concurrency |
+| [QUALITY_AND_RELEASE.md](QUALITY_AND_RELEASE.md) | Test strategy, CI, release process, governance, risk register |
+
+## 10. Open decisions
 
 1. **GUI toolkit**: egui (recommended: smallest, pure Rust) or Slint (more native look, declarative UI files). Decide before M6.
 2. **Minimum Windows version**: Windows 10 22H2 and Windows 11 are recommended. Older versions are out of support from Microsoft anyway.

@@ -523,6 +523,8 @@ All CLI features: risk low (wrapping core), admin No (except via F-ELV), default
 
 ### F-CLI-05 Exit codes
 
+This table is the single source of truth for exit codes; other docs link here.
+
 | Code | Name | When |
 |---|---|---|
 | 0 | `OK` | Completed. Skips for normal reasons (`locked`, `too_new`, `excluded`, `link`) are still 0. |
@@ -534,8 +536,9 @@ All CLI features: risk low (wrapping core), admin No (except via F-ELV), default
 | 6 | `APP_RUNNING` | ≥1 cleaner skipped because its app was running (after any wait). |
 | 7 | `INVALID_DEFINITION` | `validate` failed, or a built-in definition failed to load (should never ship). |
 | 8 | `CONFIG_ERROR` | Config unreadable with `--strict-config`. |
+| 9 | `SAFETY_VIOLATION` | The safety layer aborted a target (e.g. final path left the allowed root). Always investigate and report. |
 
-When several apply, the highest-priority code wins in this order: 1, 2, 7, 8, 4, 5, 6, 3, 0. `scan` returns 0 on success even if there is nothing to clean.
+When several apply, the highest-priority code wins in this order: 9, 1, 2, 7, 8, 4, 5, 6, 3, 0. `scan` returns 0 on success even if there is nothing to clean.
 
 ### Examples
 ```

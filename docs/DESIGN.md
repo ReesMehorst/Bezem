@@ -729,22 +729,14 @@ Prompt rules:
 - Default answer is **No** (`[y/N]`). Anything except `y`/`yes` (or `j`/`ja` in NL) cancels.
 - Privacy/high-risk items get their own line-by-line consequence before the prompt:
   `! Edge (Work) · Cookies: you will be signed out of most websites in Edge.`
-- **No TTY on stdin and no `--yes`** → refuse with exit code 4 and the message "Refusing to clean without confirmation. Add --yes to run unattended."
+- **No TTY on stdin and no `--yes`** → refuse with exit code 2 and the message "Refusing to clean without confirmation. Add --yes to run unattended."
 - `--yes` never enables opt-in cleaners by itself; they must be named with `--only` or `--include`.
 - `--dry-run` on `clean` is equivalent to `scan` with the same selection.
-- Ctrl+C during cleaning: finish the current file, print the partial summary, exit 130.
+- Ctrl+C during cleaning: finish the current file, print the partial summary, exit 4.
 
-### 10.5 Exit codes (proposed; final list lives in the CLI reference)
+### 10.5 Exit codes
 
-| Code | Meaning |
-|---|---|
-| 0 | Success (including "nothing to clean") |
-| 1 | Error (I/O, definition, internal) |
-| 2 | Usage error (bad flag, unknown cleaner ID) |
-| 3 | Completed with skips (locked files, browser open, admin declined) |
-| 4 | Not confirmed (user said no, or no TTY without `--yes`) |
-| 5 | Needs elevation and `--elevate` not given / UAC declined |
-| 130 | Interrupted (Ctrl+C) |
+See the canonical table in [FEATURES.md, F-CLI-05](FEATURES.md#f-cli-05-exit-codes). Design note: the summary line always names the reason for a non-zero code (e.g. "2 cleaners skipped: Chrome is running").
 
 ### 10.6 `--json` schema
 
