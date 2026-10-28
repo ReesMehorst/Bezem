@@ -1,4 +1,5 @@
-# Dependabot keeps Cargo dependencies and the SHA-pinned GitHub Actions current.
+# Dependabot keeps Cargo dependencies, the pinned Rust toolchain (rust-toolchain.toml) and the
+# SHA-pinned GitHub Actions current.
 # Updates are grouped to keep the PR count low; every update still has to pass ci-ok
 # (including cargo deny) before it can merge.
 version: 2
@@ -9,6 +10,7 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    labels: ["dependencies"]
     commit-message:
       prefix: "deps"
       include: scope
@@ -18,12 +20,25 @@ updates:
           - minor
           - patch
 
+  # Bumps the exact version pinned in rust-toolchain.toml. A new Rust release can bring new
+  # clippy lints, so each bump lands as its own PR and must pass ci-ok (-D warnings).
+  - package-ecosystem: rust-toolchain
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "type: ci"]
+    commit-message:
+      prefix: "ci"
+      include: scope
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    labels: ["dependencies", "type: ci"]
     commit-message:
       prefix: "ci"
       include: scope
