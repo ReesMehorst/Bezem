@@ -392,7 +392,7 @@ Unelevated process merges results into one summary and one log
 | F-CFG-03 | Age thresholds | low | No | 24 h (temp) | Must | M1 |
 | F-CFG-04 | Cleaner selection persistence | low | No | Defaults | Should | M6 |
 | F-CFG-05 | Saved selection profiles | low | No | — | Should | Post-1.0 |
-| F-CFG-06 | Update check (opt-in) | low | No | **Off** | Could | M7 (pending PLAN §9.4) |
+| F-CFG-06 | Update check (opt-in) | low | No | **Off** | Could | M7 (pending PLAN §10, decision 4) |
 | F-CFG-07 | User-created scheduled run (Task Scheduler) | medium | No | Off | Could | Post-1.0 |
 
 ### F-CFG-01 Settings
@@ -612,7 +612,7 @@ No splash screen, no tray icon, no auto-start, no ads (PLAN §5). Done when: fea
 | Store cache reset (`wsreset`), running arbitrary commands from definitions | Definitions can't run commands by design (F-CORE-07). |
 | Silent fallback from Recycle Bin to permanent delete | Violates "safe by default"; such files are skipped (F-DEL-02). |
 | Cloud sync, accounts, upsells, "Pro" tier | No network, no ads, no upsell (PLAN §5). |
-| Windows 7/8.1 or pre-22H2 Windows 10 support | Unsupported by Microsoft; PLAN §9.2 recommends Win10 22H2 and Win11. |
+| Windows 7/8.1 or pre-22H2 Windows 10 support | Unsupported by Microsoft; PLAN §10, decision 2 recommends Win10 22H2 and Win11. |
 | Cleaners for non-Windows OSes | Bezem is a Windows tool; the core is portable but no cleaners will ship for other OSes. |
 
 ---
@@ -628,5 +628,5 @@ No splash screen, no tray icon, no auto-start, no ads (PLAN §5). Done when: fea
 | M4 | F-BRW-01…05, 10, 11, 20–22, 26–28, 40, 44, 45; F-PRV-01, 02, 04, 06; F-RUN-01, 02; F-LOG-03 |
 | M5 | F-ELV-01…03; F-SYS-02, 05, 07, 09, 10 (+ 08, 13) |
 | M6 | F-GUI-01…05; F-CFG-04 |
-| M7 | F-L10N-03, 04, 05; F-CFG-06 if PLAN §9.4 decides "ship" |
+| M7 | F-L10N-03, 04, 05; F-CFG-06 if PLAN §10, decision 4 decides "ship" |
 | Post-1.0 | F-APP-*, F-CFG-05, F-CFG-07, F-BRW-30, F-BRW-47, F-GUI-07, F-CLI-07 |

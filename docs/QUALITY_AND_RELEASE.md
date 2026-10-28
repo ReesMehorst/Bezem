@@ -180,9 +180,15 @@ Hosted runners are noisy, so the PR job runs base and head **in the same job** a
 | `release.yml` | `push` tag `v*.*.*` | Reproducible build → SignPath → checksums → SLSA attestation → draft GitHub Release |
 | `publish.yml` | `release: published` | winget PR (`wingetcreate`), scoop bucket update |
 | `codeql.yml` / `scorecard.yml` | weekly + PR | CodeQL (Actions + Rust), OpenSSF Scorecard |
-| `labels.yml`, `stale.yml` | schedule | Sync labels from `.github/labels.yml`; gentle stale bot (never on `security` or `data-loss`) |
+| `labels.yml` | push to `main` touching `.github/labels.yml`, `workflow_dispatch` (dry run on PRs) | Sync labels from `.github/labels.yml`; never deletes labels missing from the file |
+| `stale.yml` | schedule | Gentle stale bot (never on `security` or `data-loss`) |
 
 ### 2.2 Jobs in `ci.yml`
+
+This is the target set of jobs. `ci.yml` grows into it milestone by milestone: M0 ships `fmt`/`clippy`/`test` on
+`windows-latest` and `ubuntu-latest`, `deny`, `msrv`, `unsafe-audit`, `license-headers` and `ci-ok`. The jobs
+that need code which does not exist yet (nextest profile, `xtask`, validator, fuzz targets, benches) are added in
+the milestone that creates that code (see [section 6](#6-milestone-mapping)).
 
 | Job | Runner(s) | Notes |
 |---|---|---|
@@ -533,7 +539,8 @@ Permissions are scoped per job: only the attest job gets `id-token: write` + `at
 
 Decisions: lazy consensus in issues/Discussions; maintainers decide on deadlock. Larger changes (new action type, schema change, network code) need a short **RFC** issue labeled `rfc` and a 7-day comment window. The principles in PLAN §1 are not up for an RFC.
 
-`CODEOWNERS`:
+`CODEOWNERS` (target layout once the project has an organization with `maintainers` and `cleaner-reviewers`
+teams; until then [`.github/CODEOWNERS`](../.github/CODEOWNERS) assigns every path to the single maintainer):
 ```
 /crates/bezem-core/src/safety/   @maintainers
 /crates/bezem-core/src/delete/   @maintainers
@@ -617,7 +624,7 @@ Defined in `.github/labels.yml` and synced by `labels.yml`:
 | Status | `needs-triage` (default), `needs-repro`, `needs-info`, `blocked`, `accepted`, `wontfix: out-of-scope` (link PLAN §4 "out of scope") |
 | Platform | `win10`, `win11`, `arm64` |
 | Contributor | `good first issue`, `help wanted`, `mentor available` |
-| Process | `no-changelog`, `release-blocker`, `fuzz`, `perf` |
+| Process | `no-changelog`, `release-blocker`, `fuzz`, `perf`, `dependencies` (Dependabot PRs) |
 
 ---
 

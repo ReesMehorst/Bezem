@@ -1300,7 +1300,8 @@ The canonical list is [FEATURES.md, F-CLI-05](FEATURES.md#f-cli-05-exit-codes). 
 
 ## 14. Dependencies
 
-All dependencies must be MIT-compatible (MIT, Apache-2.0, BSD, Zlib, Unicode-3.0) and are checked by `cargo deny`
+All dependencies must be MIT-compatible (MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-2-Clause,
+BSD-3-Clause, ISC, Zlib, Unicode-3.0; `deny.toml` is the authoritative list) and are checked by `cargo deny`
 together with RustSec advisories and a ban list (any HTTP/TLS/socket crate).
 
 | Crate | Used by | Why |
@@ -1342,5 +1343,5 @@ Deliberately **not** used:
 | Token syntax | `%TEMP%` | Kept, but tokens are a closed set resolved through APIs, not environment lookups | Avoids empty or spoofed environment variables. |
 | `StopService` / `StartService` | Named as special actions | Only `stop_service` is declarable; start is its automatic restore half | A definition cannot leave a service in a different state than it found it. |
 | Firefox history | Listed under privacy | Not in 1.0 (cookies, cache, session, form history are) | `places.sqlite` also contains bookmarks; no SQLite editing in 1.0. |
-| `unsafe` policy | `forbid` everywhere except `win32` | `deny` + `allow` on `mod win32` in `bezem-core`, `forbid` elsewhere, plus a CI grep | `forbid` cannot be locally overridden. |
+| `unsafe` policy | `forbid` everywhere except `bezem-core`, which uses `deny` | Same, made concrete: `allow` on `mod win32` only, plus a CI grep | `forbid` cannot be locally overridden. |
 | CLI commands | `list/scan/clean/show` | Adds `validate`, `log` and hidden `--bezem-elevated-worker` | Contributor workflow, log access, elevation. |

@@ -18,7 +18,9 @@ level changed.
   crates. `bezem --version` is the only working command.
 - Continuous integration on GitHub Actions (formatting, clippy, tests, dependency checks).
 - `cargo deny` policy: MIT-compatible licenses only, RustSec advisories, and a ban on network crates.
-- Dependabot configuration for Cargo dependencies and GitHub Actions.
+- Pinned Rust toolchain (`rust-toolchain.toml`, 1.99.1) and a minimum supported Rust version of 1.85.
+- Dependabot configuration for Cargo dependencies, the Rust toolchain and GitHub Actions.
+- `CODEOWNERS`, and repository labels in `.github/labels.yml` with a workflow that syncs them.
 - Governance documents: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` (Contributor
   Covenant 2.1) and this changelog.
 - Issue forms (bug, feature, new cleaner) and a pull request template.

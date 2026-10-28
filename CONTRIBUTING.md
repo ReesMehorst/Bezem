@@ -30,9 +30,11 @@ principles are not open to an RFC. The [out-of-scope list](docs/PLAN.md#explicit
 ## 3. Development setup
 
 - **Windows 10 22H2 or Windows 11** is the target platform.
-- **Rust via [`rustup`](https://rustup.rs)**. `rust-toolchain.toml` selects the stable channel with clippy,
-  rustfmt and the `x86_64-pc-windows-msvc` target automatically. The minimum supported Rust version is set in `Cargo.toml`
-  (`rust-version`).
+- **Rust via [`rustup`](https://rustup.rs)**. `rust-toolchain.toml` pins an exact Rust release
+  (with clippy, rustfmt and the `x86_64-pc-windows-msvc` target), and `rustup` installs it
+  automatically, so your local lints match CI. Dependabot proposes a bump when a new Rust release
+  ships. The minimum supported Rust version is set in `Cargo.toml` (`rust-version`) and is checked
+  separately in CI.
 - **Visual Studio Build Tools** with the "Desktop development with C++" workload (for the MSVC
   linker).
 - **Optional: Linux or macOS** for pure-logic work. The M0 workspace builds there, but Windows-only
