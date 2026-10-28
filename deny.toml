@@ -1,0 +1,100 @@
+# cargo-deny policy for Bezem (https://embarkstudios.github.io/cargo-deny/).
+# Run locally with `cargo deny check`. CI runs the same command (see .github/workflows/ci.yml).
+# Policy source: docs/ARCHITECTURE.md section 14, docs/QUALITY_AND_RELEASE.md section 2.
+
+[graph]
+# Bezem only ships for Windows; evaluate the dependency graph for the release targets so the
+# result is identical whichever host runs the check.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
+all-features = true
+
+[output]
+feature-depth = 1
+
+[advisories]
+version = 2
+# Vulnerability and unsound advisories always fail in config version 2.
+unmaintained = "all"
+yanked = "deny"
+# Every ignore needs an id and a reason, and is reviewed at each release.
+ignore = []
+
+[licenses]
+version = 2
+# MIT-compatible licenses only. Adding to this list needs maintainer review.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+exceptions = []
+# The allowlist is policy, not an inventory: do not warn when an entry is currently unused.
+unused-allowed-license = "allow"
+
+[licenses.private]
+# Workspace crates are `publish = false` (MIT, see LICENSE); they are not published, so skip them.
+ignore = true
+registries = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace-internal `path` dependencies are allowed without a version requirement.
+allow-wildcard-paths = true
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+# Bezem has no network code by principle (PLAN section 1, ARCHITECTURE sections 1 and 14):
+# no HTTP clients/servers, TLS stacks, async network runtimes or socket crates.
+deny = [
+    # HTTP clients and servers
+    { crate = "reqwest", reason = "HTTP client: Bezem has no network code" },
+    { crate = "hyper", reason = "HTTP stack: Bezem has no network code" },
+    { crate = "hyper-util", reason = "HTTP stack: Bezem has no network code" },
+    { crate = "h2", reason = "HTTP/2 stack: Bezem has no network code" },
+    { crate = "h3", reason = "HTTP/3 stack: Bezem has no network code" },
+    { crate = "ureq", reason = "HTTP client: Bezem has no network code" },
+    { crate = "isahc", reason = "HTTP client: Bezem has no network code" },
+    { crate = "surf", reason = "HTTP client: Bezem has no network code" },
+    { crate = "attohttpc", reason = "HTTP client: Bezem has no network code" },
+    { crate = "minreq", reason = "HTTP client: Bezem has no network code" },
+    { crate = "ehttp", reason = "HTTP client: Bezem has no network code" },
+    { crate = "curl", reason = "HTTP client: Bezem has no network code" },
+    { crate = "curl-sys", reason = "HTTP client: Bezem has no network code" },
+    { crate = "awc", reason = "HTTP client: Bezem has no network code" },
+    { crate = "actix-web", reason = "HTTP server: Bezem has no network code" },
+    { crate = "axum", reason = "HTTP server: Bezem has no network code" },
+    { crate = "warp", reason = "HTTP server: Bezem has no network code" },
+    { crate = "tungstenite", reason = "WebSocket: Bezem has no network code" },
+    # TLS stacks
+    { crate = "native-tls", reason = "TLS: Bezem has no network code" },
+    { crate = "rustls", reason = "TLS: Bezem has no network code" },
+    { crate = "openssl", reason = "TLS: Bezem has no network code" },
+    { crate = "openssl-sys", reason = "TLS: Bezem has no network code" },
+    # Async network runtimes, sockets, DNS, QUIC
+    { crate = "tokio", reason = "Async network runtime: not needed, no network by principle (ARCHITECTURE section 14)" },
+    { crate = "async-std", reason = "Async network runtime: not needed, no network by principle" },
+    { crate = "socket2", reason = "Sockets: Bezem has no network code" },
+    { crate = "quinn", reason = "QUIC: Bezem has no network code" },
+    { crate = "hickory-resolver", reason = "DNS: Bezem has no network code" },
+    { crate = "trust-dns-resolver", reason = "DNS: Bezem has no network code" },
+]
+allow = []
+skip = []
+skip-tree = []
+
+[sources]
+# crates.io only. Git or alternative-registry dependencies need a policy change first.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
