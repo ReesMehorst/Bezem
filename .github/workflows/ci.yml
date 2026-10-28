@@ -1,0 +1,208 @@
+# Bezem CI, scoped to milestone M0 (docs/QUALITY_AND_RELEASE.md sections 2 and 6).
+# Later milestones add nextest, validate-cleaners, coverage, fuzz-smoke, bench and build jobs.
+#
+# Hardening: read-only token, every action pinned to a full commit SHA (Dependabot keeps them
+# current), no secrets, no pull_request_target, checkout without persisted credentials.
+# The Rust toolchain comes from rust-toolchain.toml through the rustup that is preinstalled on
+# GitHub-hosted runners, so no toolchain action is needed.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -D warnings
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  windows:
+    name: fmt, clippy, test (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo fmt
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+  linux:
+    name: fmt, clippy, test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo fmt
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+  deny:
+    name: cargo deny (windows-latest)
+    # EmbarkStudios/cargo-deny-action is a Docker action and only runs on Linux, so the official
+    # prebuilt cargo-deny binary is installed with checksum verification instead. deny.toml
+    # evaluates the graph for the Windows targets, so the result does not depend on the host.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup show
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+      - name: cargo deny check
+        run: cargo deny --locked check advisories bans licenses sources
+
+  msrv:
+    name: MSRV check (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the rust-version declared in Cargo.toml
+        run: |
+          msrv=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          if ! [[ "$msrv" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error file=Cargo.toml::could not read workspace rust-version (got '$msrv')"
+            exit 1
+          fi
+          echo "MSRV: $msrv"
+          rustup toolchain install "$msrv" --profile minimal
+          # A directory override takes precedence over rust-toolchain.toml.
+          rustup override set "$msrv"
+          rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo check (MSRV)
+        run: cargo check --workspace --all-targets --locked
+
+  unsafe-audit:
+    name: unsafe audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: unsafe only in the reviewed bezem-core win32 module
+        # Whole-line comments (//, ///, //!) are ignored so docs may mention the keyword;
+        # any other occurrence outside crates/bezem-core/src/win32/ fails the job.
+        run: |
+          hits=$(git grep -nE '(^|[^A-Za-z0-9_])unsafe([^A-Za-z0-9_]|$)' -- '*.rs' \
+                   ':(exclude,glob)crates/bezem-core/src/win32/**' \
+                 | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::unsafe code outside crates/bezem-core/src/win32/"
+            exit 1
+          fi
+          echo "No unsafe outside crates/bezem-core/src/win32/."
+      - name: crate-level unsafe_code attributes
+        # bezem-core denies unsafe (win32 opts back in); every other crate forbids it.
+        run: |
+          fail=0
+          for root in crates/*/src/lib.rs crates/*/src/main.rs; do
+            [ -e "$root" ] || continue
+            case "$root" in
+              crates/bezem-core/*) want='#![deny(unsafe_code)]' ;;
+              *) want='#![forbid(unsafe_code)]' ;;
+            esac
+            if ! grep -qxF "$want" "$root"; then
+              echo "::error file=$root::missing crate attribute $want"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+  license-headers:
+    name: license headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: every Rust source file starts with the SPDX line
+        run: |
+          expected='// SPDX-License-Identifier: MIT'
+          fail=0
+          count=0
+          while IFS= read -r -d '' f; do
+            count=$((count + 1))
+            first=$(head -n 1 "$f" | tr -d '\r')
+            if [ "$first" != "$expected" ]; then
+              echo "::error file=$f,line=1::first line must be '$expected'"
+              fail=1
+            fi
+          done < <(git ls-files -z -- '*.rs')
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no Rust files found; the check would pass vacuously"
+            exit 1
+          fi
+          echo "Checked $count files."
+          exit "$fail"
+
+  ci-ok:
+    name: ci-ok
+    # The only status check required by branch protection.
+    if: always()
+    needs: [windows, linux, deny, msrv, unsafe-audit, license-headers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All required jobs passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success")' > /dev/null

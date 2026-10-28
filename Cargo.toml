@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/bezem-core",
+    "crates/bezem-cleaners",
+    "crates/bezem-cli",
+    "crates/bezem-gui",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/ReesMehorst/Bezem"
+publish = false
+
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "deny"
+todo = "warn"
+unimplemented = "warn"

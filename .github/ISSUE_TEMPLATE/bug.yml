@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in Bezem does not work as described.
+title: "bug: "
+labels: ["type: bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!CAUTION]
+        > **Did Bezem delete a file it should not have?** If a file outside the preview was deleted,
+        > or anything outside an allowed folder or through a link or junction, **do not use this form.**
+        > Report it privately: https://github.com/ReesMehorst/Bezem/security/advisories/new
+        > See [SECURITY.md](https://github.com/ReesMehorst/Bezem/blob/main/SECURITY.md) for how to recover data.
+
+        Bezem is pre-alpha. Please search existing issues before filing.
+  - type: input
+    id: version
+    attributes:
+      label: Bezem version
+      description: Output of `bezem --version`, or the commit hash if you built from source.
+      placeholder: bezem 0.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install type
+      options:
+        - Built from source
+        - Portable zip
+        - MSI
+        - winget
+        - scoop
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and build
+      description: Run `winver`. For example "Windows 11 24H2, build 26100.2314".
+    validations:
+      required: true
+  - type: dropdown
+    id: frontend
+    attributes:
+      label: Command line or desktop app?
+      options:
+        - Command line (bezem.exe)
+        - Desktop app (bezem-gui.exe)
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `bezem ...`
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the full error message if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: scan-json
+    attributes:
+      label: Output of `bezem scan --json`
+      description: If relevant and available in your version. Replace your username with `<user>`.
+      render: json
+  - type: textarea
+    id: log
+    attributes:
+      label: Log excerpt
+      description: Relevant lines from `%LOCALAPPDATA%\Bezem\logs`, if any. Replace your username with `<user>`.
+      render: text

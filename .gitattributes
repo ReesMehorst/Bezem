@@ -1,0 +1,4 @@
+# Keep LF everywhere so `cargo fmt --check` (newline_style = "Unix") passes on Windows checkouts.
+* text=auto eol=lf
+*.png binary
+*.ico binary

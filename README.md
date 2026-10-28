@@ -1,78 +1,75 @@
-# Bezem 🧹
+# Bezem
 
-[![License: MIT](https://shields.io)](https://opensource.org)
-[![Platform: Windows](https://shields.io)]()
+[![CI](https://github.com/ReesMehorst/Bezem/actions/workflows/ci.yml/badge.svg)](https://github.com/ReesMehorst/Bezem/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Bezem** (Dutch for *Broom*) is a lightweight, blazing-fast, and open-source system optimization and privacy tool designed to sweep away digital clutter from your Windows environment. 
+**Bezem** (Dutch for *Broom*) is a planned lightweight, open-source Windows tool that removes
+temporary data: temp files, caches, crash dumps and, if you opt in, privacy traces such as browser
+history. It shows you exactly what it will remove before it removes anything.
 
-Many PC cleaners are bloated with telemetry, advertisements, and unnecessary background processes. Bezem does exactly what a cleaner should do: target and remove redundant temporary data safely, transparently, and with zero overhead.
+> **Status: pre-alpha. There is nothing to run yet.**
+> The repository holds an empty Rust workspace (milestone M0). The only working command is
+> `bezem --version`. Nothing has been released. See the [roadmap](docs/PLAN.md#8-roadmap).
 
----
+## Principles
 
-## 📸 Interface
+These are non-negotiable ([PLAN.md §1](docs/PLAN.md#1-principles-non-negotiable)):
 
-# screenshot or a GIF of Bezem 
+- **Safe by default**: a preview always comes first. Bezem only deletes inside known, allowlisted
+  folders, never follows symbolic links or junctions, and skips files that are in use.
+- **Transparent**: every cleaner is a readable TOML file, and every deletion is written to a local
+  log.
+- **Zero overhead**: a single portable executable. No background service, tray icon or auto-start.
+- **Zero telemetry**: no network calls.
+- **Honest**: no registry cleaning, no "RAM boosters", no "issues found" counters, no scare tactics.
 
----
+## What it will do
 
-## Key Features
+The planned 1.0 scope is in [PLAN.md §4](docs/PLAN.md#4-cleaner-catalog) and, in detail, in
+[FEATURES.md](docs/FEATURES.md):
 
-* **Smart Temp Purge:** Scans and safely clears out user and system-level `%TEMP%` directories.
-* **Privacy Shredder:** Wipes browser caches, tracking cookies, and local session logs.
-* **System Refresher:** Flushes the Windows DNS cache and clears out obsolete prefetch data.
-* **Safe-by-Design Execution:** Intelligently skips files currently in use by active system processes to prevent OS instability or crashes.
-* **Zero Bloat:** No background telemetry, no notifications, and absolute transparency.
+- **System**: user and Windows temp folders, thumbnail cache, error reports, crash dumps,
+  Windows Update and Delivery Optimization caches, the Recycle Bin.
+- **Browsers**: caches for Chrome, Edge, Brave, Vivaldi, Opera and Firefox, profile-aware. Cookies,
+  history and other privacy data only if you opt in.
+- **Privacy** (opt-in): recent documents, jump lists, Explorer and Run history, clipboard, DNS cache.
 
-## How It Works
+Bezem will **not** clean the registry, clear prefetch data, "optimize" memory or run in the
+background. See [what is out of scope and why](docs/FEATURES.md#14-not-doing-and-why).
 
-Bezem sequentially scans predefined Windows storage pathways that accumulate junk data over time. It calculates potential storage recovery, executes a safe unlink/deletion process, and provides a clear breakdown of successful removals versus skipped system-locked files.
+It will ship first as a command-line tool (`bezem.exe`), then as a desktop app (`bezem-gui.exe`).
 
----
+## Building from source
 
-## 🛠️ Installation & Setup
+You need [Rust](https://rustup.rs) (the toolchain in `rust-toolchain.toml` is selected
+automatically). On Windows you also need the Visual Studio Build Tools for the MSVC linker.
 
-### Prerequisites
-* **Operating System:** Windows 10 / 11
-* **Permissions:** Administrator privileges are required to clean system-level directories (like `C:\Windows\Temp`).
-
-### Option 1: Running from Source
-If you want to run or develop Bezem locally, clone the repository and install the dependencies:
-
-```bash
-# Clone the repository
-git clone https://github.com
-
-# Navigate into the project directory
+```sh
+git clone https://github.com/ReesMehorst/Bezem.git
 cd Bezem
-
-# Install dependencies (uncomment if using a requirements.txt file)
-# pip install -r requirements.txt
-
-# Run the application (Right-click your terminal and Run as Administrator)
-python main.py
+cargo build
+cargo run -p bezem-cli -- --version
 ```
-*(Note: Change `python main.py` to match your core language execution command, such as `dotnet run` for C#).*
 
-### Option 2: Using the Executable
-1. Download the latest compiled release from the **Releases** tab.
-2. Right-click `Bezem.exe` and select **Run as Administrator**.
-3. Follow the on-screen prompts or GUI buttons to scan and sweep your system clean.
+## Documentation
 
----
+| Document | Contents |
+|---|---|
+| [PLAN.md](docs/PLAN.md) | Project plan, principles, roadmap |
+| [FEATURES.md](docs/FEATURES.md) | Feature specification and acceptance criteria (source of truth) |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical design, cleaner schema, safety algorithm |
+| [DESIGN.md](docs/DESIGN.md) | User interface, wording, command-line output |
+| [QUALITY_AND_RELEASE.md](docs/QUALITY_AND_RELEASE.md) | Testing, CI, release process, governance |
+| [CHANGELOG.md](CHANGELOG.md) | Changes per version |
 
 ## Contributing
 
-Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make to improve Bezem's sweeping algorithms, performance, or UI are highly appreciated.
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first, and follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+To report a security problem, or a file that Bezem deleted when it should not have, **do not open a
+public issue**. Follow [SECURITY.md](SECURITY.md).
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
-
----
-*Disclaimer: Bezem is an open-source tool. While it is designed with safety guidelines in mind to only remove temporary junk files, always ensure important data is backed up before running system optimization tools.*
+[MIT](LICENSE)

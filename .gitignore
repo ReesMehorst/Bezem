@@ -1,0 +1,15 @@
+/target/
+**/*.rs.bk
+*.pdb
+
+# Fuzzing output
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

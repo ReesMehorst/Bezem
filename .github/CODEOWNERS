@@ -1,0 +1,20 @@
+# Code owners (docs/QUALITY_AND_RELEASE.md section 4.1).
+# The repository is owned by a single maintainer for now. When more maintainers or cleaner
+# reviewers join, replace the entries below with `@<org>/maintainers` and
+# `@<org>/cleaner-reviewers` teams (teams need the repository to move to an organization).
+# Later rules win, so the catch-all comes first.
+
+*                                @ReesMehorst
+
+# Safety-critical code: deletion bugs are security bugs (SECURITY.md).
+/crates/bezem-core/src/safety/   @ReesMehorst
+/crates/bezem-core/src/delete/   @ReesMehorst
+/crates/bezem-core/src/win32/    @ReesMehorst
+
+# Cleaner definitions decide what gets deleted.
+/cleaners/                       @ReesMehorst
+
+# CI, release and repository policy.
+/.github/                        @ReesMehorst
+/deny.toml                       @ReesMehorst
+/rust-toolchain.toml             @ReesMehorst

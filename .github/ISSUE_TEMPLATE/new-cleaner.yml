@@ -1,0 +1,67 @@
+name: New cleaner
+description: Propose a cleaner for an app or a Windows folder that holds regenerable data.
+title: "cleaner: "
+labels: ["type: cleaner", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bezem only cleans **regenerable data**: caches, temporary files, logs and dumps. It does not
+        remove user documents, settings, licenses, save games or credentials.
+        Reviewers use the [cleaner review checklist](https://github.com/ReesMehorst/Bezem/blob/main/docs/QUALITY_AND_RELEASE.md#43-cleaner-definition-review-checklist).
+  - type: input
+    id: app
+    attributes:
+      label: App and version
+      description: Or "Windows" for a system folder, with the Windows version.
+      placeholder: Example App 4.2.1
+    validations:
+      required: true
+  - type: textarea
+    id: paths
+    attributes:
+      label: Folder paths
+      description: Use environment-style placeholders such as `%LOCALAPPDATA%`, not your own username. Keep the path as narrow as possible.
+      render: text
+      placeholder: '%LOCALAPPDATA%\ExampleApp\Cache\Cache_Data'
+    validations:
+      required: true
+  - type: textarea
+    id: contents
+    attributes:
+      label: What is inside
+      description: File types, what writes them, and whether the app must be closed first.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence that it is regenerable
+      description: A link to vendor documentation, or reproducible steps showing the app recreates the data without losing anything the user cares about.
+    validations:
+      required: true
+  - type: input
+    id: size
+    attributes:
+      label: Typical size
+      placeholder: 200 MB to 2 GB after a month of normal use
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Suggested risk level
+      description: high means off by default. Data that affects privacy (history, cookies) is opt-in.
+      options:
+        - low
+        - medium
+        - high
+        - not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: admin
+    attributes:
+      label: Needs administrator rights?
+      options:
+        - "No"
+        - "Yes"
+        - Not sure
