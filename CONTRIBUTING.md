@@ -30,8 +30,8 @@ principles are not open to an RFC. The [out-of-scope list](docs/PLAN.md#explicit
 ## 3. Development setup
 
 - **Windows 10 22H2 or Windows 11** is the target platform.
-- **Rust via [`rustup`](https://rustup.rs)**. The toolchain is pinned in `rust-toolchain.toml` and is
-  selected automatically. The minimum supported Rust version is set in `Cargo.toml`
+- **Rust via [`rustup`](https://rustup.rs)**. `rust-toolchain.toml` selects the stable channel with clippy,
+  rustfmt and the `x86_64-pc-windows-msvc` target automatically. The minimum supported Rust version is set in `Cargo.toml`
   (`rust-version`).
 - **Visual Studio Build Tools** with the "Desktop development with C++" workload (for the MSVC
   linker).
@@ -111,7 +111,8 @@ which is also in the pull request template. Keep names and descriptions plain: n
 
 The policy is in [ARCHITECTURE.md §14](docs/ARCHITECTURE.md#14-dependencies).
 
-- Only MIT-compatible licenses (MIT, Apache-2.0, BSD, Zlib, Unicode-3.0). `cargo deny check` enforces
+- Only MIT-compatible licenses (MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception,
+  BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0; the list in `deny.toml` is authoritative). `cargo deny check` enforces
   this, together with RustSec advisories and a ban on HTTP, TLS and socket crates.
 - Justify every new crate in the PR description: what it does, why the standard library or an
   existing dependency is not enough, and its size.
