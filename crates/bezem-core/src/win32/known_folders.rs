@@ -10,7 +10,13 @@
 //! pushing [`PathComponent`]s onto `WidePath::drive_root` ([`parse_win32_drive_path`]); anything
 //! that does not fit (UNC, `\\?\`, relative, `/`, empty, `.` or `..` components) is an
 //! [`Error::Path`]. The remaining rules of section 7.1 (too short, drive root, non-local) belong
-//! to `resolve`, which treats every error here as "Unresolved".
+//! to `resolve`.
+//!
+//! How callers must treat an error here (contract; implemented by S2/S3):
+//! - for a folder used as a **token** base (section 7.1), the token is "Unresolved" and every
+//!   target that uses it is reported, never guessed;
+//! - for a **protected** folder (section 8.3), `SafetyPolicy::windows_default` fails as a whole.
+//!   A protection is never silently dropped because its folder could not be resolved.
 
 use super::error::{Error, HresultError, Win32Error};
 use crate::path::{PathComponent, PathError, WidePath};
@@ -18,6 +24,7 @@ use crate::path::{PathComponent, PathError, WidePath};
 /// The folders Bezem resolves: the token bases of section 7.1 and the protected paths of
 /// section 8.3. A closed set; each maps to one `FOLDERID_*`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
 pub(crate) enum KnownFolder {
     /// `FOLDERID_LocalAppData` (`%LOCALAPPDATA%`).
     LocalAppData,
@@ -55,10 +62,12 @@ pub(crate) enum KnownFolder {
 
 mod sealed {
     /// Only implementations in this module may exist.
+    #[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
     pub trait Sealed {}
 }
 
 /// Source of Known Folder paths. Sealed; `Send + Sync` so one instance serves every thread.
+#[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
 pub(crate) trait KnownFolders: sealed::Sealed + Send + Sync + std::fmt::Debug {
     /// `SHGetKnownFolderPath(KF_FLAG_DEFAULT)` (the buffer is freed with `CoTaskMemFree` inside
     /// the wrapper). A failing HRESULT is [`Error::Hresult`].
@@ -74,6 +83,7 @@ pub(crate) trait KnownFolders: sealed::Sealed + Send + Sync + std::fmt::Debug {
 
 /// The real implementation, backed by the Windows APIs (W2). Stub.
 #[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
 pub(crate) struct SystemKnownFolders;
 
 impl sealed::Sealed for SystemKnownFolders {}
@@ -104,6 +114,7 @@ impl KnownFolders for SystemKnownFolders {
 /// Converts the Win32 drive form `X:\` or `X:\name(\name)*` (no trailing `\` except on the
 /// root) into a [`WidePath`]. Every other form fails: `\\?\`, UNC, relative, `/` as a
 /// separator, empty, `.` or `..` components. It never reopens what `parse_extended` closes.
+#[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
 pub(crate) fn parse_win32_drive_path(units: &[u16]) -> Result<WidePath, PathError> {
     let (drive, rest) = match units {
         [d, colon, sep, rest @ ..] if *colon == u16::from(b':') && *sep == u16::from(b'\\') => {
@@ -122,7 +133,10 @@ pub(crate) fn parse_win32_drive_path(units: &[u16]) -> Result<WidePath, PathErro
 }
 
 /// [`parse_win32_drive_path`] for `GetTempPath2W` output, which always ends in `\`: removes
-/// exactly one trailing `\` (unless the result would be the bare `X:`) before parsing.
+/// exactly one trailing `\` (unless the result would be the bare `X:`) before parsing. So
+/// `C:\` yields the drive root `\\?\C:\`: this function accepts it, and `resolve` must reject
+/// it (drive roots are never a valid temp base, section 7.1).
+#[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
 pub(crate) fn parse_temp_path(units: &[u16]) -> Result<WidePath, PathError> {
     match units {
         [init @ .., last] if init.len() > 2 && *last == u16::from(b'\\') => {
@@ -213,6 +227,16 @@ mod tests {
             r"C:\a/b",
             r"1:\a",
             r"C:\a:b",
+        ] {
+            assert!(parse_win32_drive_path(&w(bad)).is_err(), "{bad:?} accepted");
+        }
+        // Device and NT prefixes, a fullwidth drive letter, an ADS suffix, a trailing NUL.
+        for bad in [
+            r"\\.\C:\x",
+            r"\??\C:\x",
+            "\u{FF23}:\\x",
+            r"C:\a:$DATA",
+            "C:\\a\0",
         ] {
             assert!(parse_win32_drive_path(&w(bad)).is_err(), "{bad:?} accepted");
         }

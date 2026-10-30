@@ -56,6 +56,18 @@ pub mod status {
     pub const STATUS_DIRECTORY_NOT_EMPTY: i32 = 0xC000_0101_u32 as i32;
     /// A directory open hit something that is not a directory.
     pub const STATUS_NOT_A_DIRECTORY: i32 = 0xC000_0103_u32 as i32;
+    /// A reparse point was encountered (ntstatus.h). `nt_open_dir` / `nt_open_read_file` return
+    /// it when the opened object is a reparse point that is not a cloud placeholder.
+    pub const STATUS_REPARSE_POINT_ENCOUNTERED: i32 = 0xC000_050B_u32 as i32;
+    /// First and last error codes of the Cloud Files facility (`STATUS_CLOUD_FILE_*`).
+    #[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
+    pub const STATUS_CLOUD_FILE_FIRST: i32 = 0xC000_CF00_u32 as i32;
+    /// See [`STATUS_CLOUD_FILE_FIRST`].
+    #[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
+    pub const STATUS_CLOUD_FILE_LAST: i32 = 0xC000_CFFF_u32 as i32;
+    /// **Bezem-defined** (customer bit 29 set, so Windows never returns it): the opened object
+    /// is a cloud or projected placeholder (`fs::is_cloud_placeholder`).
+    pub const STATUS_BEZEM_CLOUD_PLACEHOLDER: i32 = 0xE000_0001_u32 as i32;
 }
 
 /// HRESULT values referenced by this module (winerror.h).
@@ -161,6 +173,8 @@ impl NtError {
             STATUS_NOT_SUPPORTED => "STATUS_NOT_SUPPORTED",
             STATUS_DIRECTORY_NOT_EMPTY => "STATUS_DIRECTORY_NOT_EMPTY",
             STATUS_NOT_A_DIRECTORY => "STATUS_NOT_A_DIRECTORY",
+            STATUS_REPARSE_POINT_ENCOUNTERED => "STATUS_REPARSE_POINT_ENCOUNTERED",
+            STATUS_BEZEM_CLOUD_PLACEHOLDER => "STATUS_BEZEM_CLOUD_PLACEHOLDER",
             _ => return None,
         })
     }

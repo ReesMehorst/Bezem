@@ -235,7 +235,7 @@ pub struct ResolvedRoot {
 
 /// Produced only by `SafetyPolicy::verify_root`. Holds an open directory handle.
 pub struct VerifiedRoot {
-    handle: win32::OwnedHandle,         // FILE_LIST_DIRECTORY | FILE_TRAVERSE | SYNCHRONIZE
+    handle: win32::fs::DirHandle,       // promoted from UnverifiedRoot by verify_root only
     final_path: WidePath,               // \\?\C:\Users\Ann\AppData\Local\Temp (normalized, long names)
     identity: FileIdentity,             // volume serial + FILE_ID_128
     base: AllowedBaseId,                // which allowlisted base it lies under
@@ -268,7 +268,9 @@ pub enum SkipReason {
     AccessDenied,
     ReparsePoint,
     HardLinked,             // NumberOfLinks > 1
-    CloudPlaceholder,       // RECALL_ON_DATA_ACCESS / RECALL_ON_OPEN / OFFLINE
+    CloudPlaceholder,       // OFFLINE / RECALL_ON_OPEN (enumeration only) / RECALL_ON_DATA_ACCESS /
+                            // PINNED / UNPINNED, or tag & 0xFFFF0FFF == IO_REPARSE_TAG_CLOUD,
+                            // or tag == IO_REPARSE_TAG_PROJFS, or a STATUS_CLOUD_FILE_* open error
     SystemFile,             // FILE_ATTRIBUTE_SYSTEM and !include_system
     ReadOnly,               // read-only and (!delete_readonly or FS lacks IGNORE_READONLY support)
     TooNew,                 // younger than min_age
@@ -943,7 +945,11 @@ delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
                                         | FILE_OPEN_NO_RECALL | FILE_SYNCHRONOUS_IO_NONALERT
                                         | (elevated ? FILE_OPEN_FOR_BACKUP_INTENT : 0),
                           OBJ_CASE_INSENSITIVE)
-         FileAttributeTagInfo(h): reparse point -> skip whole subtree (ReparsePoint)
+         inside win32::nt_open_dir: FileAttributeTagInformation(h); a reparse point is closed and
+         refused (STATUS_REPARSE_POINT_ENCOUNTERED -> ReparsePoint, or the Bezem cloud status ->
+         CloudPlaceholder) and the whole subtree is skipped; no DirHandle is ever minted for one.
+         Backup intent: the elevated worker enables SeBackupPrivilege only, never
+         SeRestorePrivilege, and only directory opens use it (delete and read opens never do).
        (handles are cached per worker thread in a small LRU, depth-first order keeps hit rate high)
 
   2. f = NtCreateFile(RootDirectory = parent, ObjectName = e.name,
@@ -1014,8 +1020,13 @@ that fails, `FileFullDirectoryInfo` with identity checks replaced by size + writ
 
 **Cloud placeholders.** At startup the process calls
 `RtlSetProcessPlaceholderCompatibilityMode(PHCM_EXPOSE_PLACEHOLDERS)` (`win32::expose_placeholders`), so
-placeholders show their reparse tag and attributes; if that fails, Bezem does not scan or clean. Every open below a
-root adds `FILE_OPEN_NO_RECALL`, so no open hydrates a file.
+placeholders show their reparse tag and attributes; if that fails, Bezem does not scan or clean. The call returns
+the previous mode on success; only a negative value is an error. It yields a `PlaceholdersExposed` token that
+`win32::open_root` requires, so no root can be opened without it. The elevated worker is a separate process and
+makes its own call. Before each target, `RtlQueryProcessPlaceholderCompatibilityMode` and
+`RtlQueryThreadPlaceholderCompatibilityMode` are re-checked (`win32::recheck_placeholders_exposed`): process mode
+`PHCM_EXPOSE_PLACEHOLDERS`, thread mode default or expose, otherwise the target is aborted. Every open below a root
+adds `FILE_OPEN_NO_RECALL`, so no open hydrates a file.
 
 ### 8.5 Recycle Bin mode
 

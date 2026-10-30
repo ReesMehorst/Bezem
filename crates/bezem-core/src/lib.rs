@@ -13,14 +13,11 @@ pub mod path;
 pub mod report;
 pub mod safety;
 
-// Private (ARCHITECTURE.md section 2.1): raw handles and wrappers never leave the crate. The
-// `dead_code` expectation covers the frozen stubs until their consumers land; it turns into a
-// warning, and must be removed, once every item is used.
+// Private (ARCHITECTURE.md section 2.1): raw handles and wrappers never leave the crate. Each
+// not-yet-used win32 item carries its own `cfg_attr(not(test), expect(dead_code))`, which turns
+// into an error as soon as that item gets a caller. Unit-test builds see a different set of
+// used items, so dead code is only allowed there.
 #[allow(unsafe_code)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "win32 API waits for its M1 consumers")
-)]
 #[cfg_attr(test, allow(dead_code))]
 mod win32;
 

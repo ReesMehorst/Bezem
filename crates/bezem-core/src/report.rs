@@ -17,7 +17,10 @@ pub enum SkipReason {
     ReparsePoint,
     /// `NumberOfLinks > 1`.
     HardLinked,
-    /// `RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN` or `OFFLINE`.
+    /// Cloud or projected placeholder (`win32::fs::is_cloud_placeholder`): any of `OFFLINE`,
+    /// `RECALL_ON_OPEN` (enumeration only), `RECALL_ON_DATA_ACCESS`, `PINNED`, `UNPINNED`, or a
+    /// reparse point whose tag is `IO_REPARSE_TAG_CLOUD` under the mask `0xFFFF0FFF` or
+    /// `IO_REPARSE_TAG_PROJFS`. Also any `STATUS_CLOUD_FILE_*` open failure.
     CloudPlaceholder,
     /// `FILE_ATTRIBUTE_SYSTEM` and the target does not include system files.
     SystemFile,
