@@ -56,6 +56,8 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo deny check            # needs `cargo install cargo-deny --locked`
+cargo nextest run --workspace --locked   # what CI runs instead of `cargo test`; needs cargo-nextest
+cargo llvm-cov nextest --workspace       # coverage; CI gates safety/delete at 95 %, the rest at 75 %
 ```
 
 *(Planned)* A `cargo xtask` helper with `gen-profile` (generate a fake user profile for tests),
