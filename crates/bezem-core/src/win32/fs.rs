@@ -215,7 +215,9 @@ pub(crate) struct Checked<H>(H);
 
 impl UnverifiedRoot {
     /// Promotes the root to a [`DirHandle`]. **Only `safety::verify_root` may call this**, after
-    /// steps 4 to 9 of section 8.3 passed on this same handle. Enforced by the CI grep in
+    /// steps 4 to 9 of section 8.3 passed on this same handle; step 4 requires a directory for
+    /// which [`reparse_rejection`] is `None` (no reparse point, no placeholder attribute), the
+    /// same rule `nt_open_dir` applies to children. Enforced by the CI grep in
     /// `README.md`, because Rust cannot express it without `win32` depending on `safety`.
     #[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
     pub(crate) fn into_verified_dir(self) -> DirHandle {
@@ -650,7 +652,13 @@ pub(crate) fn expose_placeholders() -> Result<PlaceholdersExposed, Error> {
 /// opened or re-verified: `RtlQueryProcessPlaceholderCompatibilityMode` and
 /// `RtlQueryThreadPlaceholderCompatibilityMode` must pass `placeholders_visible`. Anything else,
 /// including a negative return, is an error and the target is aborted (something in the
-/// process changed the mode after start-up). Stub.
+/// process changed the mode after start-up).
+///
+/// The thread mode is per thread, so the check must hold on **every thread that opens files**:
+/// the walker/deleter rayon pool calls this in its `start_handler` (or at the start of each
+/// directory task), and a failure fails closed: that thread's tasks open nothing.
+/// TODO(W3, Windows CI): set `PHCM_DISGUISE_PLACEHOLDER` on one pool thread, scan a OneDrive
+/// fixture, and assert that no dehydrated placeholder is `Eligible`. Stub.
 #[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
 pub(crate) fn recheck_placeholders_exposed(exposed: &PlaceholdersExposed) -> Result<(), Error> {
     let _ = exposed;

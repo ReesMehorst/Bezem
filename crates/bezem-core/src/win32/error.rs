@@ -65,8 +65,10 @@ pub mod status {
     /// See [`STATUS_CLOUD_FILE_FIRST`].
     #[cfg_attr(not(test), expect(dead_code, reason = "frozen M1 API; no caller yet"))]
     pub const STATUS_CLOUD_FILE_LAST: i32 = 0xC000_CFFF_u32 as i32;
-    /// **Bezem-defined** (customer bit 29 set, so Windows never returns it): the opened object
-    /// is a cloud or projected placeholder (`fs::is_cloud_placeholder`).
+    /// **Bezem-defined** (customer bit 29 set): the opened object is a cloud or projected
+    /// placeholder (`fs::is_cloud_placeholder`). Windows itself never returns a customer-bit
+    /// status, but a third-party filter driver could; the only effect would be an extra
+    /// `CloudPlaceholder` skip, which is harmless.
     pub const STATUS_BEZEM_CLOUD_PLACEHOLDER: i32 = 0xE000_0001_u32 as i32;
 }
 

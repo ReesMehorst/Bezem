@@ -896,9 +896,12 @@ verify_root(root, scope):
   3. h = CreateFileW(p, FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
                      FILE_SHARE_READ | FILE_SHARE_WRITE,                 // no SHARE_DELETE: pins the dir
                      OPEN_EXISTING,
-                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
+                     | FILE_FLAG_OPEN_NO_RECALL)
        NOT_FOUND -> Missing (Unavailable if !optional)
-  4. GetFileInformationByHandleEx(h, FileAttributeTagInfo): must be a directory, must not be a reparse point
+  4. info = GetFileInformationByHandleEx(h, FileAttributeTagInfo): must be a directory, and
+     win32::reparse_rejection(info) must be None: no reparse point of any tag, and no cloud placeholder
+     (OFFLINE / PINNED / UNPINNED / RECALL_ON_DATA_ACCESS even without a tag), the same rule as for children
      (ancestors of the root may be links, e.g. a relocated profile; the root itself and everything below may not)
   5. final = GetFinalPathNameByHandleW(h, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS)
      must start with \\?\<letter>:\ ; \\?\UNC\ and anything else -> reject
@@ -1025,7 +1028,10 @@ the previous mode on success; only a negative value is an error. It yields a `Pl
 `win32::open_root` requires, so no root can be opened without it. The elevated worker is a separate process and
 makes its own call. Before each target, `RtlQueryProcessPlaceholderCompatibilityMode` and
 `RtlQueryThreadPlaceholderCompatibilityMode` are re-checked (`win32::recheck_placeholders_exposed`): process mode
-`PHCM_EXPOSE_PLACEHOLDERS`, thread mode default or expose, otherwise the target is aborted. Every open below a root
+`PHCM_EXPOSE_PLACEHOLDERS`, thread mode default or expose, otherwise the target is aborted. Because the thread mode
+is per thread, the check must hold on **every thread that opens files**: the walker/deleter rayon pool runs it in its
+`start_handler` (or at the start of each directory task), and a failure there fails closed (the pool's tasks
+refuse to open anything). Every open below a root
 adds `FILE_OPEN_NO_RECALL`, so no open hydrates a file.
 
 ### 8.5 Recycle Bin mode
