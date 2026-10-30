@@ -24,7 +24,7 @@
 
 ### 1.2 Unit tests
 
-Focus on the safety layer (PLAN §3.3). Make path logic **pure functions over the `WidePath` / `PathComponent` types** (`bezem-core::safety::path`) wherever possible, so it can be unit-, property- and fuzz-tested on Linux too; only the thin Win32 shim needs Windows.
+Focus on the safety layer (PLAN §3.3). Make path logic **pure functions over the `WidePath` / `PathComponent` types** (`bezem-core::path`) wherever possible, so it can be unit-, property- and fuzz-tested on Linux too; only the thin Win32 shim needs Windows.
 
 Mandatory unit-test cases for the path validator / allowlist:
 

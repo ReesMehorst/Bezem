@@ -8,6 +8,33 @@ use super::*;
 use std::collections::HashSet;
 use PathError::*;
 
+#[test]
+fn file_identity_compares_both_fields() {
+    let a = FileIdentity {
+        volume_serial: 7,
+        file_id: [1; 16],
+    };
+    let b = a; // Copy
+    assert_eq!(a, b);
+    assert_ne!(
+        a,
+        FileIdentity {
+            volume_serial: 8,
+            ..a
+        }
+    );
+    assert_ne!(
+        a,
+        FileIdentity {
+            file_id: [2; 16],
+            ..a
+        }
+    );
+    let set: HashSet<FileIdentity> = [a].into_iter().collect();
+    assert!(set.contains(&b));
+    assert!(!format!("{a:?}").is_empty());
+}
+
 fn w(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }

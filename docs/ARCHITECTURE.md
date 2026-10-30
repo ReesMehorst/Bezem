@@ -82,7 +82,8 @@ dependencies.
 | `validate` | Turns `CleanerDef` into `Cleaner`. All schema rules from section 5.3. Pure, no I/O. |
 | `resolve` | Token expansion (`%LOCALAPPDATA%` etc.) through Known Folder APIs, browser profile discovery, root wildcard expansion. |
 | `glob` | Wrapper around `globset` with Bezem's fixed matching semantics (section 7.3). |
-| `safety` | Path types (`WidePath`, `PathComponent`, section 8.3), `SafetyPolicy`, allowlisted bases, protected paths, root verification, per-item verdicts. |
+| `safety` | `SafetyPolicy`, allowlisted bases, protected paths, root verification, per-item verdicts. |
+| `path` | Pure path types shared by `safety`, `walk`, `delete` and `win32`: `WidePath`, `PathComponent` (the single name rule), `FileIdentity`. No I/O, no `unsafe`; tested on Linux (section 8.3). |
 | `walk` | Parallel, handle-relative directory enumeration (scan phase). |
 | `delete` | Handle-relative re-verification and deletion (clean phase); Recycle Bin mode. |
 | `actions` | Implementations of the closed set of special actions. |
@@ -240,7 +241,7 @@ pub struct VerifiedRoot {
     base: AllowedBaseId,                // which allowlisted base it lies under
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]  // in crate::path; serde later
 pub struct FileIdentity { pub volume_serial: u64, pub file_id: [u8; 16] }
 
 pub struct SafetyPolicy {
@@ -905,7 +906,7 @@ verify_root(root, scope):
  10. return VerifiedRoot { handle: h, final_path: final, identity, base }
 ```
 
-**Path types and comparison** (`safety::path`, pure logic, tested on Linux too). A `WidePath` is always
+**Path types and comparison** (`crate::path`, re-exported by `safety`; pure logic, tested on Linux too). A `WidePath` is always
 `\\?\X:\` plus validated `PathComponent`s; it is built by pushing components, and the only parser accepts exactly
 that form (for `GetFinalPathNameByHandleW` output). A component is never empty, `.` or `..`, has at most 255 UTF-16
 units and contains no `\`, `/`, `:`, NUL, other control character (U+0001..U+001F) or Win32 wildcard
@@ -930,7 +931,8 @@ Executed by `delete::execute_target` for each `PlanEntry`, after the root has be
 delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
   1. parent = dircache.get_or_open(e.dir):
        for each component c of the relative dir path, starting from root.handle:
-         reject c unless it is a valid PathComponent (8.3): not empty, ".", "..", no '\\', '/', ':', NUL, ...
+         c is a PathComponent (8.3): the single name rule, stricter than '\\', '/', ':', NUL alone;
+         win32::nt_open_relative takes &PathComponent, so an unvalidated name cannot reach NtCreateFile
          h = NtCreateFile(RootDirectory = <previous handle>, ObjectName = c,
                           DesiredAccess = FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
                           ShareAccess   = FILE_SHARE_READ | FILE_SHARE_WRITE,          // no SHARE_DELETE

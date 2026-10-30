@@ -8,4 +8,5 @@
 //! opt back in with `#[allow(unsafe_code)]` (ARCHITECTURE.md section 15).
 #![deny(unsafe_code)]
 
+pub mod path;
 pub mod safety;

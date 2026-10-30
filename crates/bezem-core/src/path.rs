@@ -2,7 +2,9 @@
 
 //! Validated path types: [`PathComponent`] and [`WidePath`] (ARCHITECTURE.md sections 7.1, 8.3, 8.4).
 //!
-//! Pure logic over UTF-16 code units, so it builds and is tested on every platform.
+//! Pure logic over UTF-16 code units, so it builds and is tested on every platform. This module is
+//! neutral: `safety`, `walk`, `delete` and `win32` all use it, so the codebase has a single set of
+//! name rules (`win32` must not depend on `safety`). It also holds [`FileIdentity`].
 //!
 //! - A [`WidePath`] is always an absolute extended-length drive path, `\\?\X:\a\b`. It is built by
 //!   pushing validated components onto a drive root. The only parser, [`WidePath::parse_extended`],
@@ -35,6 +37,10 @@
 //! same volume, where one directory yields identical code units. A test that cross-checks this
 //! folding against `CompareStringOrdinal` on Windows is TODO for the `win32` layer (it needs FFI,
 //! which may only live there). Globs use Unicode simple case folding instead (section 7.3).
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
 
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -46,6 +52,15 @@ pub const MAX_PATH_UNITS: usize = 32_766;
 
 const PREFIX: [u16; 4] = [b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
 const SEP: u16 = b'\\' as u16;
+
+/// Identity of a file system object: volume serial number and 128-bit file ID (`FileIdInfo`), as
+/// returned by `win32` (ARCHITECTURE.md section 3.2). Used to detect a swapped object between scan
+/// and delete; on file systems with 64-bit IDs the ID is zero-extended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FileIdentity {
+    pub volume_serial: u64,
+    pub file_id: [u8; 16],
+}
 
 /// Why a path or component was rejected. Every rejection is final: there is no repair or fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

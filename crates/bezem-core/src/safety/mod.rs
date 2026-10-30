@@ -2,13 +2,11 @@
 
 //! Safety layer (ARCHITECTURE.md section 8).
 //!
-//! At M1/S1 this holds only the path types. `SafetyPolicy`, allowlisted bases, protected paths and
-//! root verification build on them.
+//! `SafetyPolicy`, allowlisted bases, protected paths and root verification build on the pure path
+//! types in [`crate::path`], re-exported here.
 #![cfg_attr(
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
 
-pub mod path;
-
-pub use path::{PathComponent, PathError, WidePath};
+pub use crate::path::{FileIdentity, PathComponent, PathError, WidePath};
