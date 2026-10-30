@@ -16,6 +16,9 @@
 //! - `#[allow(unsafe_code)]` may appear only on the `mod win32;` declaration in `lib.rs`. This
 //!   CI check (attribute lines only, so docs may mention it) must print exactly that one line:
 //!   `git grep -nE '^[[:space:]]*#!?\[.*(allow|expect|warn)\(.*unsafe_code' -- '*.rs'`
+//!
+//! The signatures for workstreams W2 to W6 are frozen; `README.md` in this directory lists them.
+//! Implementations replace stub bodies without changing a signature.
 #![warn(missing_docs)]
 #![deny(clippy::multiple_unsafe_ops_per_block)]
 #![cfg_attr(
@@ -25,3 +28,4 @@
 
 pub(crate) mod error;
 pub(crate) mod handle;
+pub(crate) mod known_folders;

@@ -23,4 +23,4 @@ pub mod safety;
 #[cfg_attr(test, allow(dead_code))]
 mod win32;
 
-pub use win32::error::{Error as OsError, NtError, Win32Error};
+pub use win32::error::{Error as OsError, HresultError, NtError, Win32Error};
