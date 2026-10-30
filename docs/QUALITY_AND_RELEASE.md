@@ -51,12 +51,12 @@ Each scenario asserts **exactly** which files disappeared, using a before/after 
 
 | Scenario | How it is built | Expected result |
 |---|---|---|
-| Junction escaping out | `CreateDirectory` + `FSCTL_SET_REPARSE_POINT` (or `junction` crate) in `%TEMP%\evil` → canary dir | Junction itself may be removed (as a link, never traversed); canary untouched; reported as "skipped: reparse point" |
+| Junction escaping out | `CreateDirectory` + `FSCTL_SET_REPARSE_POINT` (or `junction` crate) in `%TEMP%\evil` → canary dir | Junction itself is never traversed or deleted; canary untouched; reported as "skipped: reparse point" |
 | Directory symlink / file symlink | `CreateSymbolicLinkW` with `SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE` (runner has Developer Mode; else skip with notice) | Same as junction |
 | Volume mount point | `SetVolumeMountPointW` onto a VHD mounted by the job (nightly only, needs admin) | Not traversed |
 | Locked file | Hold a handle with `share_mode(0)` from a helper thread/process during clean | Skipped, listed in summary with "in use"; exit code reflects partial success |
 | File locked mid-run | Lock acquired *after* scan, *before* delete | Re-check at delete time catches it; no crash |
-| Read-only file | `FILE_ATTRIBUTE_READONLY` | Policy per PLAN: deleted only if the cleaner opts in (`clear_readonly = true`), otherwise skipped and reported |
+| Read-only file | `FILE_ATTRIBUTE_READONLY` | Deleted only if the cleaner sets `delete_readonly = true` (attribute never cleared), otherwise skipped and reported (`read_only`) |
 | Hidden/system attributes | `FILE_ATTRIBUTE_HIDDEN \| SYSTEM` | Treated like normal files inside allowed roots; never widens roots |
 | Long paths > 260 chars | Nested dirs to ~600 chars, created via `\\?\` prefix; test both with and without `LongPathsEnabled` | Scanned and deleted correctly; no truncation; no `MAX_PATH` errors |
 | Unicode names | Names with emoji, RTL text, combining marks, NFC vs NFD duplicates, lone surrogates (invalid UTF-16) | Handled via `OsString` without lossy conversion; logged with escaping; never matched against the wrong file |
@@ -634,7 +634,7 @@ Likelihood and impact: **L**ow / **M**edium / **H**igh.
 
 | # | Risk | Likelihood | Impact | Mitigation | Owner |
 |---|---|---|---|---|---|
-| R1 | **Accidental data loss** (bug in path resolution, reparse handling, glob, or a bad definition) | M | H | Safety layer with allowlist + forbidden roots; never traverse reparse points; delete-time re-check; ≥ 95 % coverage + proptest + fuzz on `safety`; canary-tree integration tests; definition validator; 2-reviewer rule; Recycle Bin default for privacy data; deletion log; data-loss = security process (§4.4) | Maintainers |
+| R1 | **Accidental data loss** (bug in path resolution, reparse handling, glob, or a bad definition) | M | H | Safety layer with allowlist + forbidden roots; never traverse reparse points; delete-time re-check; ≥ 95 % coverage + proptest + fuzz on `safety`; canary-tree integration tests; definition validator; 2-reviewer rule (weakened while there is one maintainer, see note below); Recycle Bin default for privacy data; deletion log; data-loss = security process (§4.4) | Maintainers |
 | R2 | **Malicious or careless community definition** | M | H | Closed set of named actions, no arbitrary commands; validator rejects out-of-allowlist roots; CODEOWNERS + checklist §4.3; community defs (post-1.0) opt-in with diff view | Cleaner reviewers |
 | R3 | **AV false positives** (heuristics flag "deletes many files" + unsigned/new binary) | H (early), M later | M | SignPath signing; stable publisher name; no packers/UPX; no self-modification or download-and-execute; submit each release to Microsoft WDSI and major vendors; VirusTotal check in release checklist; `false-positive-av` template; document verification for users | Release maintainer |
 | R4 | **SmartScreen "unknown publisher" / low reputation** | H until reputation builds | M | Authenticode via SignPath (OV cert; reputation accrues per cert); keep same cert across releases; winget/scoop as primary channels; README explains SmartScreen and how to verify checksums/provenance | Release maintainer |
@@ -649,6 +649,8 @@ Likelihood and impact: **L**ow / **M**edium / **H**igh.
 | R13 | **Accidental network code** (e.g. via a dependency's feature) | L | M (breaks a principle) | `cargo deny` bans for HTTP crates in default features; Process Monitor check in manual QA; CI test that `bezem.exe` imports no `winhttp`/`ws2_32` (dumpbin import check) unless the opt-in update check feature is enabled | Maintainers |
 | R14 | **Users treat Bezem as a "speed booster" and expect magic; reputational harm from comparisons to scareware** | M | L | Honest copy (PLAN §1), no counters or scores, clear docs on what is and isn't cleaned and why | Maintainers |
 | R15 | **Legal/trademark friction** over browser/app names in cleaner definitions | L | L | Nominative use only, no logos; neutral names ("Chrome cache") | Project lead |
+
+**R1 interim review rule (single human maintainer).** R1's 2-reviewer rule (and the 2-approval CODEOWNERS rule for `safety`/`delete` in §2) cannot be met while Bezem has one human maintainer, so this mitigation is weaker until a second human joins. Until then, every PR touching `crates/bezem-core/src/safety/`, `delete/` or `win32/` needs all of: a `safety-reviewer` agent pass, a review by a different agent than the one that authored the change, and the lead's approval. A second human maintainer must be in place before M5 (elevation). Owner: Project lead.
 
 Review this register at every milestone exit (M0–M7) and after any `data-loss` or `security` incident.
 

@@ -521,7 +521,7 @@ When `profiles` is set, target paths may start with a placeholder: `{user_data}`
 | `include` | array of string | `["**"]` if `recursive`, else `["*"]` | Globs relative to the root (section 7.3). Max 32. |
 | `exclude` | array of string | `[]` | Globs; a match on a directory prunes its subtree. Max 32. |
 | `recursive` | bool | `false` | Descend into subdirectories. |
-| `min_age_hours` | integer | `24` for temp roots, else `0` | 0 to 8760. For roots under `%TEMP%`, `%TMP%` or `%WINDIR%\Temp`, values below 24 are rejected. Age is `max(LastWriteTime, ChangeTime)`. |
+| `min_age_hours` | integer | `24` for temp roots, else `0` | 0 to 8760. For roots under `%TEMP%`, `%TMP%` or `%WINDIR%\Temp`, values below 24 are rejected. Age is `max(LastWriteTime, CreationTime, ChangeTime)`. |
 | `remove_empty_dirs` | bool | `false` | Remove directories left empty, strictly below the root. The root itself is never removed. |
 | `include_system` | bool | `false` | Allow files with `FILE_ATTRIBUTE_SYSTEM`. |
 | `delete_readonly` | bool | `true` | Delete read-only files without modifying their attributes. |
@@ -948,7 +948,7 @@ delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
        EndOfFile != e.size -> ChangedSinceScan
 
   6. GetFileInformationByHandleEx(f, FileBasicInfo)
-       age = now - max(LastWriteTime, ChangeTime); age < t.min_age -> TooNew
+       age = now - max(LastWriteTime, CreationTime, ChangeTime); age < t.min_age -> TooNew
        LastWriteTime != e.last_write -> ChangedSinceScan
 
   7. exclusions re-checked on the plan's relative path (cheap, already long names)
