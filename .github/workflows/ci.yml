@@ -1,5 +1,8 @@
-# Bezem CI, scoped to milestone M0 (docs/QUALITY_AND_RELEASE.md sections 2 and 6).
-# Later milestones add nextest, validate-cleaners, coverage, fuzz-smoke, bench and build jobs.
+# Bezem CI, scoped to milestone M1 (docs/QUALITY_AND_RELEASE.md sections 1, 2 and 6).
+# Later milestones add validate-cleaners, bench and build jobs.
+#
+# The nightly schedule runs the full PR suite plus proptest-nightly (10 000 cases); that job is
+# skipped on every other event and ci-ok accepts that skip only there.
 #
 # Hardening: read-only token, every action pinned to a full commit SHA (Dependabot keeps them
 # current), no secrets, no pull_request_target, checkout without persisted credentials.
@@ -14,6 +17,8 @@ on:
     branches: [main]
   merge_group:
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC, QUALITY_AND_RELEASE.md section 2.1
 
 permissions:
   contents: read
@@ -27,6 +32,8 @@ env:
   CARGO_INCREMENTAL: 0
   RUSTFLAGS: -D warnings
   RUST_BACKTRACE: 1
+  # PR runs use 256 proptest cases; proptest-nightly overrides this (section 1.4).
+  PROPTEST_CASES: 256
 
 defaults:
   run:
@@ -34,10 +41,54 @@ defaults:
 
 jobs:
   windows:
-    name: fmt, clippy, test (windows-latest)
-    runs-on: windows-latest
+    name: fmt, clippy, nextest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Server 2022 is close to the Windows 10 21H2 kernel, Server 2025 to Windows 11 24H2.
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
+      - name: Probe symlink creation (M1 risk, QUALITY_AND_RELEASE.md section 1.3)
+        # Report only: symlink tests need Developer Mode or an elevated token. mklink passes
+        # SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE, like std::os::windows::fs::symlink_*.
+        # Exports BEZEM_CI_SYMLINKS=1|0 so tests can refuse to skip silently when it is 1.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP 'bezem-symlink-probe'
+          Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path "$dir\target-dir" | Out-Null
+          Set-Content -Path "$dir\target.txt" -Value 'probe'
+          function Probe([scriptblock]$Make) {
+            $out = (& $Make 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -eq 0) { 'yes' } else { "NO: $out" }
+          }
+          $fileLink = Probe { cmd /c mklink "$dir\file-link" "$dir\target.txt" }
+          $dirLink  = Probe { cmd /c mklink /D "$dir\dir-link" "$dir\target-dir" }
+          $junction = Probe { cmd /c mklink /J "$dir\junction" "$dir\target-dir" }
+          $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $dev = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' `
+                    -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense
+          $priv = [bool](whoami /priv | Select-String 'SeCreateSymbolicLinkPrivilege')
+          $ok = ($fileLink -eq 'yes') -and ($dirLink -eq 'yes')
+          $verdict = if ($ok) { 'Symlinks CAN be created on this runner.' } else { 'Symlinks CANNOT be created: symlink tests would skip.' }
+          @(
+            "## Symlink probe (${{ matrix.os }})", '', "**$verdict**", '',
+            '| Check | Result |', '|---|---|',
+            "| File symlink (mklink) | $fileLink |",
+            "| Directory symlink (mklink /D) | $dirLink |",
+            "| Junction (mklink /J, no privilege needed) | $junction |",
+            "| Elevated (Administrators) | $admin |",
+            "| SeCreateSymbolicLinkPrivilege in token | $priv |",
+            "| Developer Mode (AllowDevelopmentWithoutDevLicense) | $(if ($null -eq $dev) { 'not set' } else { $dev }) |"
+          ) -join "`n" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          "BEZEM_CI_SYMLINKS=$(if ($ok) { 1 } else { 0 })" | Add-Content -Path $env:GITHUB_ENV
+          if ($ok) { "::notice::symlink probe: $verdict" } else { "::warning::symlink probe: $verdict" }
+          Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+          exit 0
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -47,16 +98,30 @@ jobs:
           rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          key: ${{ matrix.os }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest@0.9.150
+          fallback: none
       - name: cargo fmt
         run: cargo fmt --all --check
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: cargo test
-        run: cargo test --workspace --locked
+      - name: cargo nextest
+        run: cargo nextest run --workspace --locked --profile ci
+      - name: doctests (nextest does not run them)
+        run: cargo test --workspace --locked --doc
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: junit-${{ matrix.os }}
+          path: target/nextest/ci/junit.xml
+          retention-days: 7
 
   linux:
-    name: fmt, clippy, test (ubuntu-latest)
+    name: fmt, clippy, pure-logic nextest (ubuntu-latest)
+    # Catches accidental Win32 coupling of the pure-logic crates (section 2.2, test-logic-linux).
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -70,12 +135,138 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest@0.9.150
+          fallback: none
       - name: cargo fmt
         run: cargo fmt --all --check
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: cargo test
-        run: cargo test --workspace --locked
+      - name: cargo nextest (pure-logic crates)
+        # --no-tests=warn only while bezem-core and bezem-cleaners have no tests (M0 skeleton);
+        # switch to the default (fail) once the M1 safety tests land.
+        run: cargo nextest run --locked --profile ci -p bezem-core -p bezem-cleaners --no-tests=warn
+      - name: doctests (pure-logic crates)
+        run: cargo test --locked --doc -p bezem-core -p bezem-cleaners
+
+  coverage:
+    name: coverage gate (windows-2025)
+    # Section 1.1: safety and delete modules of bezem-core >= 95 % lines, the rest >= 75 %.
+    # A module that does not exist yet (or has no code) is reported and skipped by the script.
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install toolchain from rust-toolchain.toml plus llvm-tools
+        run: |
+          rustup toolchain install
+          rustup component add llvm-tools-preview
+          rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-llvm-cov@0.9.1,cargo-nextest@0.9.150
+          fallback: none
+      - name: cargo llvm-cov nextest
+        run: cargo llvm-cov nextest --workspace --locked --json --summary-only --output-path coverage.json
+      - name: Coverage gate
+        run: >
+          python .github/scripts/coverage_gate.py coverage.json
+          --module crates/bezem-core/src/safety=95
+          --module crates/bezem-core/src/delete=95
+          --default 75
+
+  fuzz-smoke:
+    name: fuzz smoke (ubuntu-latest)
+    # Short libFuzzer run per target (section 1.5). Passes with a notice while fuzz/ has no targets.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # cargo-fuzz needs nightly; a dated nightly keeps the job reproducible. Bump by hand.
+      FUZZ_TOOLCHAIN: nightly-2026-10-15
+      FUZZ_SECONDS: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Look for fuzz targets
+        id: find
+        run: |
+          if [ -f fuzz/Cargo.toml ] && compgen -G 'fuzz/fuzz_targets/*.rs' > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            msg="No fuzz targets yet (fuzz/Cargo.toml + fuzz/fuzz_targets/*.rs); fuzz smoke skipped."
+            echo "::notice::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Install nightly and cargo-fuzz
+        if: steps.find.outputs.present == 'true'
+        # install-action has no cargo-fuzz manifest, so build it from crates.io with --locked.
+        run: |
+          rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+          cargo +"$FUZZ_TOOLCHAIN" install cargo-fuzz --version 0.13.2 --locked
+      - name: cargo fuzz run (${{ env.FUZZ_SECONDS }} s per target)
+        if: steps.find.outputs.present == 'true'
+        run: |
+          targets=$(cargo +"$FUZZ_TOOLCHAIN" fuzz list)
+          if [ -z "$targets" ]; then
+            echo "::error file=fuzz/Cargo.toml::fuzz_targets/*.rs exist but cargo fuzz list is empty"
+            exit 1
+          fi
+          for t in $targets; do
+            echo "::group::fuzz $t"
+            cargo +"$FUZZ_TOOLCHAIN" fuzz run "$t" -- -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048
+            echo "::endgroup::"
+            echo "- \`$t\`: ${FUZZ_SECONDS} s, no crash" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure() && steps.find.outputs.present == 'true'
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          retention-days: 30
+
+  proptest-nightly:
+    name: proptest 10 000 cases (windows-2025)
+    # Section 1.4. Runs only on the nightly schedule or a manual dispatch.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 120
+    env:
+      PROPTEST_CASES: 10000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: proptest-nightly
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest@0.9.150
+          fallback: none
+      - name: cargo nextest (PROPTEST_CASES=${{ env.PROPTEST_CASES }})
+        run: cargo nextest run --workspace --locked --profile nightly
+      - name: Upload new proptest regression seeds
+        # Failing seeds must be committed to proptest-regressions/ (section 1.4).
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: proptest-regressions
+          path: "**/proptest-regressions/**"
+          retention-days: 30
 
   deny:
     name: cargo deny (windows-latest)
@@ -127,7 +318,7 @@ jobs:
         run: cargo check --workspace --all-targets --locked
 
   unsafe-audit:
-    name: unsafe audit
+    name: unsafe audit and safety fences
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -163,6 +354,11 @@ jobs:
             fi
           done
           exit "$fail"
+      - name: win32 safety fences
+        # Fences the compiler cannot express (crates/bezem-core/src/win32/README.md): unsafe_code
+        # attributes, the root-promotion and delete-attestation call sites, deletion primitives
+        # and win32 -> safety imports. Each fence switches on by itself as the code lands.
+        run: python3 .github/scripts/fences.py
 
   license-headers:
     name: license headers
@@ -196,13 +392,30 @@ jobs:
     name: ci-ok
     # The only status check required by branch protection.
     if: always()
-    needs: [windows, linux, deny, msrv, unsafe-audit, license-headers]
+    needs:
+      - windows
+      - linux
+      - deny
+      - msrv
+      - unsafe-audit
+      - license-headers
+      - coverage
+      - fuzz-smoke
+      - proptest-nightly
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: All required jobs passed
+        # Every job must succeed. The one exception: proptest-nightly may be skipped, and only
+        # on events where its `if:` skips it by design (not on schedule or workflow_dispatch).
         env:
           NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$NEEDS" | jq -e 'all(.[]; .result == "success")' > /dev/null
+          echo "$NEEDS" | jq -e --arg ev "$EVENT" '
+            ($ev == "schedule" or $ev == "workflow_dispatch") as $nightly
+            | to_entries
+            | all(.[]; .value.result == "success"
+                  or (.key == "proptest-nightly" and .value.result == "skipped" and ($nightly | not)))
+          ' > /dev/null

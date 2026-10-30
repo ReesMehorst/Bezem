@@ -87,6 +87,9 @@ deny = [
     { crate = "quinn", reason = "QUIC: Bezem has no network code" },
     { crate = "hickory-resolver", reason = "DNS: Bezem has no network code" },
     { crate = "trust-dns-resolver", reason = "DNS: Bezem has no network code" },
+    # Identifier pasting would let code synthesise fenced names (into_verified_dir, attest,
+    # remove_file, ...) and dodge the word-match fences in .github/scripts/fences.py.
+    { crate = "paste", reason = "Identifier synthesis defeats the CI safety fences" },
 ]
 allow = []
 skip = []
