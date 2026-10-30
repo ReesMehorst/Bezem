@@ -10,6 +10,7 @@
 #![deny(unsafe_code)]
 
 pub mod path;
+pub mod report;
 pub mod safety;
 
 // Private (ARCHITECTURE.md section 2.1): raw handles and wrappers never leave the crate. The

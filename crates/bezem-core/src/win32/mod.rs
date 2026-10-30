@@ -27,5 +27,6 @@
 )]
 
 pub(crate) mod error;
+pub(crate) mod fs;
 pub(crate) mod handle;
 pub(crate) mod known_folders;
