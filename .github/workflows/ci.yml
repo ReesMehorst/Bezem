@@ -318,7 +318,7 @@ jobs:
         run: cargo check --workspace --all-targets --locked
 
   unsafe-audit:
-    name: unsafe audit
+    name: unsafe audit and safety fences
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -354,6 +354,11 @@ jobs:
             fi
           done
           exit "$fail"
+      - name: win32 safety fences
+        # Fences the compiler cannot express (crates/bezem-core/src/win32/README.md): unsafe_code
+        # attributes, the root-promotion and delete-attestation call sites, deletion primitives
+        # and win32 -> safety imports. Each fence switches on by itself as the code lands.
+        run: python3 .github/scripts/fences.py
 
   license-headers:
     name: license headers
