@@ -82,7 +82,7 @@ dependencies.
 | `validate` | Turns `CleanerDef` into `Cleaner`. All schema rules from section 5.3. Pure, no I/O. |
 | `resolve` | Token expansion (`%LOCALAPPDATA%` etc.) through Known Folder APIs, browser profile discovery, root wildcard expansion. |
 | `glob` | Wrapper around `globset` with Bezem's fixed matching semantics (section 7.3). |
-| `safety` | `SafetyPolicy`, allowlisted bases, protected paths, root verification, per-item verdicts. |
+| `safety` | Path types (`WidePath`, `PathComponent`, section 8.3), `SafetyPolicy`, allowlisted bases, protected paths, root verification, per-item verdicts. |
 | `walk` | Parallel, handle-relative directory enumeration (scan phase). |
 | `delete` | Handle-relative re-verification and deletion (clean phase); Recycle Bin mode. |
 | `actions` | Implementations of the closed set of special actions. |
@@ -901,6 +901,19 @@ verify_root(root, scope):
  10. return VerifiedRoot { handle: h, final_path: final, identity, base }
 ```
 
+**Path types and comparison** (`safety::path`, pure logic, tested on Linux too). A `WidePath` is always
+`\\?\X:\` plus validated `PathComponent`s; it is built by pushing components, and the only parser accepts exactly
+that form (for `GetFinalPathNameByHandleW` output). A component is never empty, `.` or `..`, has at most 255 UTF-16
+units and contains no `\`, `/`, `:`, NUL, other control character (U+0001..U+001F) or Win32 wildcard
+(`* ? < > " |`); trailing dots/spaces and device names are kept literally. Names are stored as UTF-16 code units, so
+unpaired surrogates round-trip. Equality, hashing and containment (`starts_with`, `is_descendant_of`,
+`strip_prefix`) are component-wise, ordinal and case-insensitive, emulating `CompareStringOrdinal(.., TRUE)`: each
+UTF-16 unit is uppercased on its own (ASCII; otherwise its Unicode simple uppercase if that is one non-ASCII BMP
+character; surrogates unchanged). So `ß` != `SS`, `İ` != `i`, and `ı`/`ſ` do not fold onto ASCII, as on Windows. A
+volume's upcase table can lag the toolchain's Unicode version for a few recent mappings; this is tolerable because
+safety comparisons are between normalized final paths from the same volume, where one directory yields identical
+code units.
+
 ### 8.4 Delete-time algorithm (per file)
 
 Executed by `delete::execute_target` for each `PlanEntry`, after the root has been re-verified with
@@ -910,7 +923,7 @@ Executed by `delete::execute_target` for each `PlanEntry`, after the root has be
 delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
   1. parent = dircache.get_or_open(e.dir):
        for each component c of the relative dir path, starting from root.handle:
-         reject c if empty, ".", "..", or contains '\\', '/', ':' or NUL
+         reject c unless it is a valid PathComponent (8.3): not empty, ".", "..", no '\\', '/', ':', NUL, ...
          h = NtCreateFile(RootDirectory = <previous handle>, ObjectName = c,
                           DesiredAccess = FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
                           ShareAccess   = FILE_SHARE_READ | FILE_SHARE_WRITE,          // no SHARE_DELETE

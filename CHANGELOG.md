@@ -14,6 +14,8 @@ level changed.
 
 ### Added
 
+- `bezem-core`: validated path types (`WidePath`, `PathComponent`) for the safety layer: extended-length
+  `\\?\X:\` paths built by component push, component-wise case-insensitive containment.
 - Cargo workspace skeleton with the `bezem-core`, `bezem-cleaners`, `bezem-cli` and `bezem-gui`
   crates. `bezem --version` is the only working command.
 - Continuous integration on GitHub Actions (formatting, clippy, tests, dependency checks).
