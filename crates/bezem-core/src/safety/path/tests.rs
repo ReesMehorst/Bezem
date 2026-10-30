@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
 
+//! Tests named `inv1_` / `inv5_` cover ARCHITECTURE.md section 8.2 invariant 1 (nothing outside a
+//! verified root: containment is component-wise) and invariant 5 (a failed check rejects, with no
+//! repair or fallback).
+
 use super::*;
 use std::collections::HashSet;
+use PathError::*;
 
 fn w(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
@@ -15,15 +20,40 @@ fn c(s: &str) -> PathComponent {
     PathComponent::new(s).unwrap()
 }
 
+/// A path on `C:` whose `to_wide()` is exactly `n` units long (`n >= 8`).
+fn path_of_len(n: usize) -> WidePath {
+    let mut x = WidePath::drive_root('C').unwrap();
+    loop {
+        let sep = usize::from(!x.components().is_empty());
+        let avail = n - x.to_wide().len() - sep;
+        if avail <= MAX_COMPONENT_UNITS {
+            x.push(c(&"x".repeat(avail))).unwrap();
+            return x;
+        }
+        // Leave at least one unit for the next name after its separator.
+        x.push(c(&"x".repeat(MAX_COMPONENT_UNITS.min(avail - 2))))
+            .unwrap();
+    }
+}
+
 #[test]
 fn component_accepts_literal_names() {
+    // Trailing dots/spaces, a lone space and device names are only special to Win32 path parsing.
+    // They are safe solely because Bezem uses them under `\\?\` or handle-relative opens, which
+    // never normalize them (ARCHITECTURE.md 8.1); Recycle mode skips them (8.5).
     for name in [
         "Temp",
         "a b",
         "Windows.",
         "Windows ",
         "...",
+        ". ",
+        ".. ",
+        " ",
         "con",
+        "CON",
+        "NUL",
+        "COM1",
         "aux.txt",
         "$I30",
         "Ünïcödé",
@@ -36,9 +66,9 @@ fn component_accepts_literal_names() {
     assert_eq!(PathComponent::from_wide(&odd).unwrap().as_wide(), &odd);
 }
 
+/// Invariant 5
 #[test]
-fn component_rejects_adversarial_names() {
-    use PathError::*;
+fn inv5_component_rejects_adversarial_names() {
     let cases: &[(&str, PathError)] = &[
         ("", EmptyComponent),
         (".", DotComponent),
@@ -68,6 +98,24 @@ fn component_rejects_adversarial_names() {
     assert_eq!(PathComponent::new(&long).unwrap_err(), ComponentTooLong);
 }
 
+/// Invariant 5
+#[test]
+fn inv5_forbidden_unit_boundaries() {
+    // The control range ends at U+001F; U+0020 (space) and U+007F (DEL) are outside the rule and
+    // accepted literally, like any other name NTFS can store.
+    assert_eq!(
+        PathComponent::from_wide(&[0x1F]).unwrap_err(),
+        ForbiddenUnit(0x1F)
+    );
+    assert_eq!(
+        PathComponent::new("a\u{1F}b").unwrap_err(),
+        ForbiddenUnit(0x1F)
+    );
+    for ok in [" ", "  ", "a b", "\u{7F}", "a\u{7F}"] {
+        assert!(PathComponent::new(ok).is_ok(), "{ok:?}");
+    }
+}
+
 #[test]
 fn parse_accepts_only_extended_drive_form() {
     assert_eq!(p(r"\\?\C:\"), WidePath::drive_root('C').unwrap());
@@ -79,8 +127,9 @@ fn parse_accepts_only_extended_drive_form() {
     assert_eq!(WidePath::parse_extended(&x.to_wide()).unwrap(), x);
 }
 
+/// Invariant 5
 #[test]
-fn parse_rejects_adversarial_paths() {
+fn inv5_parse_rejects_adversarial_paths() {
     for s in [
         "",
         " ",
@@ -97,6 +146,7 @@ fn parse_rejects_adversarial_paths() {
         r"\\?\1:\",
         r"\\?\CC:\",
         r"\\?\é:\",
+        r"\\?\Ｃ:\",
         r"\\.\C:\",
         r"\\.\PhysicalDrive0",
         r"\??\C:\",
@@ -137,28 +187,54 @@ fn push_builds_the_same_path_as_parse() {
         .join(&[c("Windows"), c("Temp")])
         .unwrap();
     assert_eq!(x, y);
-    assert!(WidePath::drive_root('1').is_err());
-    assert!(WidePath::drive_root('é').is_err());
+    for bad in ['1', 'é', '\u{FF23}' /* fullwidth C */, ':'] {
+        assert_eq!(WidePath::drive_root(bad).unwrap_err(), NotExtendedDrivePath);
+    }
 }
 
+/// Invariant 5
 #[test]
-fn push_enforces_total_length_and_leaves_path_unchanged() {
+fn inv5_push_enforces_total_length_and_leaves_path_unchanged() {
     let name = c(&"x".repeat(MAX_COMPONENT_UNITS));
     let mut x = WidePath::drive_root('C').unwrap();
     while x.push(name.clone()).is_ok() {}
     assert!(x.to_wide().len() <= MAX_PATH_UNITS);
     let before = x.clone();
-    assert_eq!(x.push(name).unwrap_err(), PathError::PathTooLong);
-    assert_eq!(x.components().len(), before.components().len());
-    let mut fill = x.clone();
-    while fill.push(c("y")).is_ok() {}
-    // Filled up to the limit: a further "\y" (two units) no longer fits, the limit itself does.
-    let len = fill.to_wide().len();
-    assert!(len <= MAX_PATH_UNITS && len + 2 > MAX_PATH_UNITS, "{len}");
+    assert_eq!(x.push(name).unwrap_err(), PathTooLong);
+    assert!(x == before && x.to_wide() == before.to_wide());
 }
 
+/// Invariant 5
 #[test]
-fn parent_and_drive_root() {
+fn inv5_length_limit_is_exact_for_push_parse_and_join() {
+    let max = path_of_len(MAX_PATH_UNITS);
+    assert_eq!(max.to_wide().len(), MAX_PATH_UNITS);
+    assert_eq!(WidePath::parse_extended(&max.to_wide()).unwrap(), max);
+
+    let mut exact = path_of_len(MAX_PATH_UNITS - 2);
+    exact.push(c("y")).unwrap(); // "\y": exactly MAX_PATH_UNITS
+    assert_eq!(exact.to_wide().len(), MAX_PATH_UNITS);
+
+    let mut over = path_of_len(MAX_PATH_UNITS - 1);
+    let before = over.clone();
+    assert_eq!(over.push(c("y")).unwrap_err(), PathTooLong); // would be MAX_PATH_UNITS + 1
+    assert!(over == before && over.to_wide() == before.to_wide());
+
+    let mut wide = before.to_wide();
+    wide.extend(w(r"\y"));
+    assert_eq!(wide.len(), MAX_PATH_UNITS + 1);
+    assert_eq!(WidePath::parse_extended(&wide).unwrap_err(), PathTooLong);
+
+    // `join` failing partway: "\a" still fits, "\bc" does not; the original is untouched.
+    let base = path_of_len(MAX_PATH_UNITS - 3);
+    let before = base.clone();
+    assert_eq!(base.join(&[c("a"), c("bc")]).unwrap_err(), PathTooLong);
+    assert!(base == before && base.to_wide() == before.to_wide());
+}
+
+/// Invariant 1
+#[test]
+fn inv1_parent_and_drive_root() {
     let x = p(r"\\?\C:\Windows\Temp");
     assert!(!x.is_drive_root());
     assert_eq!(x.parent().unwrap(), p(r"\\?\C:\Windows"));
@@ -173,7 +249,10 @@ fn equality_is_ordinal_case_insensitive() {
     assert_eq!(c("σ"), c("Σ"));
     assert_eq!(c("ᾀ"), c("ᾈ")); // simple mapping of iota-subscript letters
     assert_eq!(c("ÿ"), c("Ÿ"));
-    // No linguistic or multi-character folding, no non-ASCII onto ASCII.
+    // Known lexical over-folds vs. older NTFS upcase tables (documented in the module docs).
+    assert_eq!(c("\u{10D0}"), c("\u{1C90}")); // Georgian Mkhedruli / Mtavruli
+    assert_eq!(c("\u{1C80}"), c("\u{0412}")); // Cyrillic rounded ve / VE
+                                              // No linguistic or multi-character folding, no non-ASCII onto ASCII.
     for (a, b) in [
         ("İ", "i"),
         ("İ", "I"),
@@ -198,14 +277,33 @@ fn equality_is_ordinal_case_insensitive() {
 }
 
 #[test]
+fn lone_surrogates_round_trip_and_stay_distinct() {
+    let mut wide = w(r"\\?\C:\a");
+    wide.push(0xD800);
+    wide.extend(w(r"\b"));
+    wide.push(0xDC00);
+    let x = WidePath::parse_extended(&wide).unwrap();
+    assert_eq!(x.to_wide(), wide);
+    assert_eq!(x.to_string(), "\\\\?\\C:\\a\u{FFFD}\\b\u{FFFD}");
+    let hi = PathComponent::from_wide(&[0xD800]).unwrap();
+    let lo = PathComponent::from_wide(&[0xDC00]).unwrap();
+    assert_ne!(hi, lo);
+    assert_eq!(hi.to_string(), "\u{FFFD}");
+}
+
+#[test]
 fn hash_agrees_with_equality() {
     let set: HashSet<WidePath> = [p(r"\\?\C:\Windows\System32")].into_iter().collect();
     assert!(set.contains(&p(r"\\?\c:\WINDOWS\system32")));
     assert!(!set.contains(&p(r"\\?\C:\Windows")));
+    let names: HashSet<PathComponent> = [c("Ärger")].into_iter().collect();
+    assert!(names.contains(&c("äRGER")));
+    assert!(!names.contains(&c("Arger")));
 }
 
+/// Invariant 1
 #[test]
-fn containment_is_component_wise_not_string_prefix() {
+fn inv1_containment_is_component_wise_not_string_prefix() {
     let windows = p(r"\\?\C:\Windows");
     assert!(p(r"\\?\C:\WINDOWS\System32").starts_with(&windows));
     assert!(p(r"\\?\C:\Windows\System32").is_descendant_of(&windows));
@@ -232,8 +330,9 @@ fn containment_is_component_wise_not_string_prefix() {
     assert!(!p(r"\\?\D:\").starts_with(&root));
 }
 
+/// Invariant 1
 #[test]
-fn strip_prefix_returns_the_relative_components() {
+fn inv1_strip_prefix_returns_the_relative_components() {
     let root = p(r"\\?\C:\Users\Ann\AppData\Local\Temp");
     let item = p(r"\\?\c:\users\ann\appdata\local\temp\Sub\file.tmp");
     let rel = item.strip_prefix(&root).unwrap();
@@ -241,4 +340,41 @@ fn strip_prefix_returns_the_relative_components() {
     assert_eq!(root.join(rel).unwrap(), item);
     assert_eq!(root.strip_prefix(&root).unwrap(), &[] as &[PathComponent]);
     assert_eq!(root.strip_prefix(&item), None);
+}
+
+#[test]
+fn upcase_is_idempotent_ascii_closed_and_keeps_surrogates() {
+    let surrogate = |u: u16| (0xD800..=0xDFFF).contains(&u);
+    for u in 0..=u16::MAX {
+        let up = upcase(u);
+        assert_eq!(upcase(up), up, "not idempotent at U+{u:04X}");
+        assert_eq!(u < 0x80, up < 0x80, "U+{u:04X} -> U+{up:04X} crosses ASCII");
+        assert_eq!(surrogate(u), surrogate(up), "U+{u:04X} -> U+{up:04X}");
+        if surrogate(u) {
+            assert_eq!(up, u);
+        }
+    }
+}
+
+#[test]
+fn errors_and_debug_render() {
+    for e in [
+        EmptyComponent,
+        DotComponent,
+        ForbiddenUnit(0x3A),
+        ComponentTooLong,
+        PathTooLong,
+        NotExtendedDrivePath,
+    ] {
+        let err: &dyn std::error::Error = &e;
+        assert!(!err.to_string().is_empty());
+        assert!(err.source().is_none());
+        assert!(!format!("{e:?}").is_empty());
+    }
+    assert_eq!(
+        ForbiddenUnit(0x3A).to_string(),
+        "forbidden character U+003A in path component"
+    );
+    assert_eq!(format!("{:?}", c("Temp")), r#""Temp""#);
+    assert_eq!(format!("{:?}", p(r"\\?\C:\Temp")), r#""\\\\?\\C:\\Temp""#);
 }

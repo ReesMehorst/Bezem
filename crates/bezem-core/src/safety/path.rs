@@ -24,13 +24,17 @@
 //!   `i`, and dotless `ı` / long `ſ` do not fold onto ASCII `I` / `S` (Windows does not fold them);
 //! - surrogate units are unchanged, so characters outside the BMP never fold.
 //!
-//! Why: equality must agree with how Windows itself decides that two names are the same file, not
-//! with linguistic rules. Globs use Unicode simple case folding instead (section 7.3); they only
-//! narrow what is eligible. Limit: the upcase table of a given volume can lag the Unicode version
-//! of the pinned Rust toolchain for a few recently added mappings. Safety comparisons are made
-//! between `FILE_NAME_NORMALIZED` final paths read from the same volume, where the same directory
-//! yields identical code units, so this tolerance only ever has to absorb drive-letter and ASCII
-//! case differences in practice.
+//! This equality is **lexical**: an ordinal per-unit uppercase using the Unicode tables of the
+//! pinned Rust toolchain, not a statement about what Windows considers the same file. It may fold
+//! pairs that an older NTFS `$UpCase` table keeps apart (for example U+1C80 and U+0412, or Georgian
+//! Mtavruli U+1C90 and Mkhedruli U+10D0), and it ignores per-directory case sensitivity. Over-folding
+//! *loosens* base containment (section 8.3 step 7) and the final-path tripwire (section 8.4 step 8)
+//! and *tightens* protected-path checks (section 8.3 step 8). It is therefore never the sole
+//! containment guard: handle-relative opens below a verified root and file identity (volume serial
+//! and file ID) are. In practice the compared paths are `FILE_NAME_NORMALIZED` final paths from the
+//! same volume, where one directory yields identical code units. A test that cross-checks this
+//! folding against `CompareStringOrdinal` on Windows is TODO for the `win32` layer (it needs FFI,
+//! which may only live there). Globs use Unicode simple case folding instead (section 7.3).
 
 use std::fmt;
 use std::hash::{Hash, Hasher};
