@@ -722,7 +722,7 @@ Cleaning  [██████████████████░░░░░
 
 ✓ Freed 2.3 GB (13,912 files) in 4.1 s.
 – Skipped 138 files (86 MB) that were in use or changed since the scan.
-Log: C:\Users\mees\AppData\Local\Bezem\logs\2026-10-28T14-02-11.jsonl
+Log: C:\Users\mees\AppData\Local\Bezem\logs\clean-2026-10-28T14-02-11Z-9f3c21aa.jsonl
 ```
 
 Prompt rules:

@@ -63,24 +63,24 @@ Path conventions: `%LOCALAPPDATA%` = `C:\Users\<user>\AppData\Local`, `%APPDATA%
   - Unit + fuzz tests (PLAN §6) cover each case above.
 
 ### F-CORE-02 Reparse-point guard
-- **Description:** The walker never follows symlinks, junctions, mount points or any `FILE_ATTRIBUTE_REPARSE_POINT` entry. Reparse points themselves are reported as "skipped: link", never deleted (deleting a junction is safe, but Bezem stays conservative and leaves it).
+- **Description:** The walker never follows symlinks, junctions, mount points or any `FILE_ATTRIBUTE_REPARSE_POINT` entry. Reparse points themselves are reported as skipped (`reparse_point`), never deleted (deleting a junction is safe, but Bezem stays conservative and leaves it).
 - **User story:** As a user, I want a malicious junction in `%TEMP%` pointing at `C:\` to be ignored.
 - **Acceptance criteria:** Integration test creates `%TEMP%\evil -> C:\Users\<user>\Documents` (junction) and a file symlink; after `clean`, Documents is untouched and both links are reported as skipped. OneDrive placeholder files (cloud reparse tag) are never hydrated or deleted.
 
 ### F-CORE-03 Read-only parallel scan
-- **Description:** `jwalk`/`rayon` walk of all selected targets. Opens nothing for write. Applies age threshold (F-CFG-03), exclusions (F-CFG-02) and per-target globs during the scan, so the preview matches what clean would do.
+- **Description:** `rayon` + custom handle-relative walker (`FileIdExtdDirectoryInfo`, see ARCHITECTURE §8.4 and §10.2) over all selected targets. Opens nothing for write. Applies age threshold (F-CFG-03), exclusions (F-CFG-02) and per-target globs during the scan, so the preview matches what clean would do.
 - **User story:** As a user, I want to see what would be removed without any risk.
 - **Acceptance criteria:** Scan never changes a file timestamp (no `LastAccessTime` writes beyond what the OS does on directory listing); a typical profile scans in < 2 s (PLAN §6 benchmark); scan works unelevated, and admin-only targets show as "needs admin: not scanned" instead of failing.
 
 ### F-CORE-04 Preview report
 - **Description:** Result per cleaner: file count, total bytes, skipped count by reason, and up to 5 sample paths (all paths with `--details` / "Show all" in the GUI).
 - **User story:** As a user, I want to know exactly what each cleaner will remove and how much space it frees before I confirm.
-- **Acceptance criteria:** Clean is impossible without a scan in the same session (GUI button disabled; CLI `clean` always scans first and shows the table before asking). Skipped reasons are one of: `locked`, `too_new`, `excluded`, `link`, `outside_allowlist`, `needs_admin`, `app_running`, `access_denied`, `readonly`.
+- **Acceptance criteria:** Clean is impossible without a scan in the same session (GUI button disabled; CLI `clean` always scans first and shows the table before asking). Skipped reasons are one of: `locked`, `too_new`, `excluded`, `reparse_point`, `outside_allowlist`, `needs_admin`, `app_running`, `access_denied`, `read_only`.
 
 ### F-CORE-05 Deletion engine with re-checks
 - **Description:** Delete never trusts the scan. For each file: open with `FILE_FLAG_OPEN_REPARSE_POINT`, verify via the handle (`GetFinalPathNameByHandleW`) that it is still under an allowlisted root, not a reparse point, still old enough and not excluded, then delete through that same handle (`SetFileInformationByHandle` with `FileDispositionInfoEx`) to close the TOCTOU gap. Empty subfolders inside a target are removed afterwards; the target root folder is kept.
 - **User story:** As a user, I want files that changed between scan and clean to be handled safely.
-- **Acceptance criteria:** Test swaps a scanned file for a junction between scan and clean → nothing outside the root is touched. Read-only files are skipped and reported (`readonly`) unless the definition sets `allow_readonly = true`. Every outcome lands in the log (F-LOG-01).
+- **Acceptance criteria:** Test swaps a scanned file for a junction between scan and clean → nothing outside the root is touched. Read-only files are skipped and reported (`read_only`) unless the definition sets `delete_readonly = true`; Bezem never clears the read-only attribute (it deletes with `FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE`). Every outcome lands in the log (F-LOG-01).
 
 ### F-CORE-06 Locked / in-use files
 - **Description:** On `ERROR_SHARING_VIOLATION` / `ERROR_LOCK_VIOLATION` the file is skipped and reported. No forced unlocking, no handle closing, no `MoveFileEx(..., MOVEFILE_DELAY_UNTIL_REBOOT)`.
@@ -419,7 +419,7 @@ Unelevated process merges results into one summary and one log
 - **Acceptance criteria:** Exclusions can only narrow what is deleted, never widen it; an exclusion that matches nothing shows a hint ("matches no scanned files"). Built-in safety rules (allowlist, reparse points) cannot be disabled by any setting.
 
 ### F-CFG-03 Age thresholds
-- **Description:** Per-target `min_age_hours` in TOML (temp folders: 24). A file counts as "new" if **either** `LastWriteTime` or `CreationTime` is within the threshold (installers extracted to `%TEMP%` keep old write times but have new creation times). Global override via setting or `--min-age <hours>`.
+- **Description:** Per-target `min_age_hours` in TOML (temp folders: 24). Age is measured from the **newest** of `LastWriteTime`, `CreationTime` and `ChangeTime`, so a file counts as "new" if any of them is within the threshold (installers extracted to `%TEMP%` keep old write times but have new creation times). Global override via setting or `--min-age <hours>`.
 - **Acceptance criteria:** Overriding to 0 shows a warning ("files still in use by running installers may be removed"); skipped files are reported as `too_new`.
 
 ### F-CFG-05 Saved selection profiles
@@ -441,13 +441,13 @@ Unelevated process merges results into one summary and one log
 | F-LOG-03 | Privacy-aware logging | low | No | `summary` | Must | M4 |
 
 ### F-LOG-01 Log format
-- **Location:** `%LOCALAPPDATA%\Bezem\logs\<UTC timestamp>_<run-id>.jsonl` (e.g. `2026-10-28T14-03-22Z_7f3a.jsonl`). Local only, never uploaded (no network code exists).
+- **Location:** `%LOCALAPPDATA%\Bezem\logs\clean-<UTC timestamp>-<run-id>.jsonl` (e.g. `clean-2026-10-28T14-03-22Z-9f3c21aa.jsonl`, 8-hex run id; only `clean` writes a log). Local only, never uploaded (no network code exists).
 - **Record per item:**
   ```json
-  {"ts":"2026-10-28T14:03:22.418Z","run":"7f3a","cleaner":"windows.user_temp","path":"C:\\Users\\a\\AppData\\Local\\Temp\\x.tmp","bytes":4096,"mode":"permanent","result":"deleted"}
+  {"t":"2026-10-28T14:03:22.311Z","type":"deleted","cleaner":"windows.user_temp","path":"C:\\Users\\a\\AppData\\Local\\Temp\\x.tmp","bytes":4096,"how":"permanent"}
   ```
-  `result` ∈ `deleted`, `recycled`, `action_done`, `skipped_<reason>` (reasons as in F-CORE-04), `failed` (+ `error`).
-- **Header/footer records:** Bezem version, definitions hash, elevated yes/no, selection, totals, duration.
+  `type` ∈ `run` (header), `deleted` (`how` = delete mode), `skipped` (+ `reason`, codes as in F-CORE-04, and the Win32/NT `code`; failures are `skipped` with `reason` `fs_error`), `action`, `cleaner_done`, `summary` (footer). Full schema: [ARCHITECTURE §11.1](ARCHITECTURE.md#111-deletion-log-user-facing-plan-33-item-8).
+- **Header/footer records (`run`, `summary`):** Bezem version, definitions hash, elevated yes/no, selection, totals, duration.
 - **Acceptance criteria:** Every path deleted in a test run appears exactly once; a crash mid-run leaves a valid, truncated log (line-buffered writes).
 
 ### F-LOG-02 Retention and viewer
