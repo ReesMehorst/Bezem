@@ -1,0 +1,14 @@
+# Clippy configuration for the whole workspace (see docs/ARCHITECTURE.md section 15).
+# unwrap/expect/panic are denied in [workspace.lints]; tests may use them.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+disallowed-methods = [
+  { path = "std::fs::remove_file", reason = "deletes go through FsBackend handles only" },
+  { path = "std::fs::remove_dir", reason = "deletes go through FsBackend handles only" },
+  { path = "std::fs::remove_dir_all", reason = "deletes go through FsBackend handles only" },
+  { path = "std::fs::canonicalize", reason = "canonical form comes from GetFinalPathNameByHandleW" },
+  { path = "std::path::Path::canonicalize", reason = "canonical form comes from GetFinalPathNameByHandleW" },
+  { path = "std::env::var", reason = "environment variables never feed security decisions" },
+  { path = "std::env::var_os", reason = "environment variables never feed security decisions" },
+]
