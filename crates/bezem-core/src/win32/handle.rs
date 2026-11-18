@@ -134,6 +134,10 @@ mod tests {
 /// every wrapper returns an `unsupported_platform` error before reaching one.
 #[cfg(not(windows))]
 #[derive(Debug)]
+#[allow(
+    dead_code,
+    reason = "uninhabited by design: never constructed off Windows"
+)]
 pub struct OwnedHandle {
     _never: std::convert::Infallible,
 }
