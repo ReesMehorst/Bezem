@@ -83,6 +83,7 @@ dependencies.
 | `resolve` | Token expansion (`%LOCALAPPDATA%` etc.) through Known Folder APIs, browser profile discovery, root wildcard expansion. |
 | `glob` | Wrapper around `globset` with Bezem's fixed matching semantics (section 7.3). |
 | `safety` | `SafetyPolicy`, allowlisted bases, protected paths, root verification, per-item verdicts. |
+| `path` | Pure path types shared by `safety`, `walk`, `delete` and `win32`: `WidePath`, `PathComponent` (the single name rule), `FileIdentity`. No I/O, no `unsafe`; tested on Linux (section 8.3). |
 | `walk` | Parallel, handle-relative directory enumeration (scan phase). |
 | `delete` | Handle-relative re-verification and deletion (clean phase); Recycle Bin mode. |
 | `actions` | Implementations of the closed set of special actions. |
@@ -240,7 +241,7 @@ pub struct VerifiedRoot {
     base: AllowedBaseId,                // which allowlisted base it lies under
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]  // in crate::path; serde later
 pub struct FileIdentity { pub volume_serial: u64, pub file_id: [u8; 16] }
 
 pub struct SafetyPolicy {
@@ -728,7 +729,11 @@ Resolution rules:
 - A token that fails to resolve, resolves to an empty string, to a relative path, to a path shorter than 4
   characters (`C:\x`), to a drive root, or to a non-local volume makes every target using it **Unresolved**
   (reported, never guessed). This rules out the classic `"%X%\Temp"` -> `"\Temp"` expansion bug: the code never
-  concatenates strings, it pushes components onto an already-validated absolute `PathBuf`.
+  concatenates strings, it pushes `PathComponent`s onto an already-validated absolute `WidePath` (8.3).
+  `SHGetKnownFolderPath` returns the Win32 `C:\...` form, which `WidePath::parse_extended` rightly rejects, so
+  `resolve` needs a second entry point that splits that form into `PathComponent`s pushed onto `drive_root`. It must
+  not reopen what `parse_extended` closes: only `X:\` with an ASCII letter, no `/` separators, no empty, `.` or `..`
+  components, no prefixes, UNC or device paths.
 - The matching environment variable is read only as a cross-check; a mismatch is logged at `debug` and the API value
   wins.
 - `%TEMP%` is resolved once per process. In the elevated worker user-scope tokens are not available at all
@@ -901,6 +906,22 @@ verify_root(root, scope):
  10. return VerifiedRoot { handle: h, final_path: final, identity, base }
 ```
 
+**Path types and comparison** (`crate::path`, re-exported by `safety`; pure logic, tested on Linux too). A `WidePath` is always
+`\\?\X:\` plus validated `PathComponent`s; it is built by pushing components, and the only parser accepts exactly
+that form (for `GetFinalPathNameByHandleW` output). A component is never empty, `.` or `..`, has at most 255 UTF-16
+units and contains no `\`, `/`, `:`, NUL, other control character (U+0001..U+001F) or Win32 wildcard
+(`* ? < > " |`); trailing dots/spaces and device names are kept literally. Names are stored as UTF-16 code units, so
+unpaired surrogates round-trip. Equality, hashing and containment (`starts_with`, `is_descendant_of`,
+`strip_prefix`) are component-wise, ordinal and case-insensitive, emulating `CompareStringOrdinal(.., TRUE)`: each
+UTF-16 unit is uppercased on its own (ASCII; otherwise its Unicode simple uppercase if that is one non-ASCII BMP
+character; surrogates unchanged). So `ß` != `SS`, `İ` != `i`, and `ı`/`ſ` do not fold onto ASCII, as on Windows.
+This equality is **lexical**, using the pinned toolchain's Unicode tables: it may fold pairs that an older NTFS
+`$UpCase` table keeps apart (U+1C80 vs U+0412, Georgian Mtavruli U+1C90 vs U+10D0) and it ignores per-directory case
+sensitivity. Over-folding loosens base containment (step 7) and the final-path tripwire (8.4 step 8) and tightens the
+protected-path check (step 8). It is therefore never the sole containment guard: handle-relative opens below a
+verified root and file identity (volume serial + file ID) are. A test cross-checking the folding against
+`CompareStringOrdinal` on Windows is TODO for the `win32` layer, which is the only place that FFI may live.
+
 ### 8.4 Delete-time algorithm (per file)
 
 Executed by `delete::execute_target` for each `PlanEntry`, after the root has been re-verified with
@@ -910,7 +931,8 @@ Executed by `delete::execute_target` for each `PlanEntry`, after the root has be
 delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
   1. parent = dircache.get_or_open(e.dir):
        for each component c of the relative dir path, starting from root.handle:
-         reject c if empty, ".", "..", or contains '\\', '/', ':' or NUL
+         c is a PathComponent (8.3): the single name rule, stricter than '\\', '/', ':', NUL alone;
+         win32::nt_open_relative takes &PathComponent, so an unvalidated name cannot reach NtCreateFile
          h = NtCreateFile(RootDirectory = <previous handle>, ObjectName = c,
                           DesiredAccess = FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
                           ShareAccess   = FILE_SHARE_READ | FILE_SHARE_WRITE,          // no SHARE_DELETE
@@ -969,6 +991,7 @@ delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
  10. CloseHandle(f). With POSIX semantics the name is gone at this point, even if another process
      still has a FILE_SHARE_DELETE handle open.
  11. emit LogRecord::Deleted { path: final (without \\?\), bytes: e.size }
+     (this display path is for people only and is never parsed back into a WidePath)
 ```
 
 **Empty directories** (`remove_empty_dirs = true`): after all files of a target are processed, candidate
@@ -992,6 +1015,8 @@ FOF_NOERRORUI`) on a dedicated STA thread, in batches of 500 items. Each item is
 if absent (item too large for the bin, or the volume has no bin), it returns a failure HRESULT so the shell skips
 the item, which is reported as `RecycleUnavailable`. Bezem never silently turns a recycle into a permanent delete.
 
+Items with a component that ends in a dot or space, or that is a DOS device name (`CON`, `NUL`, `COM1`, ...), are
+skipped in Recycle mode (`RecycleUnavailable`), because the shell may normalize such names to a different file.
 The shell API is path-based, so there is a small window between verification and the move. That is acceptable only
 because **Recycle mode is restricted to the unelevated process**: an attacker able to race it already has the same
 rights as Bezem. The elevated worker always deletes permanently through handles.
