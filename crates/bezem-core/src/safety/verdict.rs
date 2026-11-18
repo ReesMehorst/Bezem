@@ -16,7 +16,7 @@
 use std::time::SystemTime;
 
 use super::SafetyPolicy;
-use crate::fs::{IdQuality, ItemKind, ItemQuery, RawEntry};
+use crate::fs::{attr, IdQuality, ItemKind, ItemQuery, RawEntry};
 use crate::target::Target;
 use crate::types::{FileTime, SkipReason, Verdict};
 use crate::walk::PlanEntry;
@@ -77,19 +77,60 @@ impl<'a> ItemFacts<'a> {
 
 impl SafetyPolicy {
     /// The verdict for one item (order in the module docs).
-    #[allow(clippy::unimplemented, unused_variables)] // M1-STUB (B)
+    ///
+    /// Fail-closed extras: a file link count other than 1 (`0` included) is `HardLinked`; an
+    /// item whose newest timestamp is 0 (unknown) is `TooNew`.
     pub fn verdict(&self, facts: &ItemFacts<'_>, target: &Target, now: SystemTime) -> Verdict {
-        unimplemented!()
+        use SkipReason as R;
+        let skip = if attr::is_reparse(facts.attributes, facts.reparse_tag) {
+            Some(R::ReparsePoint)
+        } else if attr::is_cloud(facts.attributes) {
+            Some(R::CloudPlaceholder)
+        } else if target.matcher.excludes(facts.rel_path) {
+            Some(R::Excluded)
+        } else if facts.attributes & attr::SYSTEM != 0 && !target.include_system {
+            Some(R::SystemFile)
+        } else if facts.attributes & attr::READONLY != 0 && !target.delete_readonly {
+            Some(R::ReadOnly)
+        } else if facts.kind == ItemKind::File && facts.link_count.is_some_and(|n| n != 1) {
+            Some(R::HardLinked)
+        } else if facts.delete_pending == Some(true) {
+            Some(R::DeletePending)
+        } else if self.too_new(facts, target, now) {
+            Some(R::TooNew)
+        } else {
+            None
+        };
+        match skip {
+            Some(r) => Verdict::Skip(r),
+            None => Verdict::Eligible,
+        }
+    }
+
+    /// `newest = max(last_write, change)`; future (clock skew) or unknown (0) => too new;
+    /// `now - newest < effective_min_age` => too new; exactly equal => old enough.
+    fn too_new(&self, facts: &ItemFacts<'_>, target: &Target, now: SystemTime) -> bool {
+        let newest = facts.last_write.max(facts.change_time);
+        let now = FileTime::from_system_time(now);
+        if newest == FileTime(0) || newest > now {
+            return true;
+        }
+        let age_ticks = now.0 - newest.0;
+        age_ticks < FileTime::duration_to_ticks(self.effective_min_age(target))
     }
 
     /// Compares delete-time facts with the plan; `Some(ChangedSinceScan)` on any difference.
-    #[allow(clippy::unimplemented, unused_variables)] // M1-STUB (B)
+    /// A directory where the plan has a file is a change too.
     pub fn check_against_plan(
         &self,
         q: &ItemQuery,
         e: &PlanEntry,
         id_quality: IdQuality,
     ) -> Option<SkipReason> {
-        unimplemented!()
+        let changed = (id_quality != IdQuality::None && q.identity != e.identity)
+            || q.size != e.size
+            || q.last_write != e.last_write
+            || q.is_directory;
+        changed.then_some(SkipReason::ChangedSinceScan)
     }
 }

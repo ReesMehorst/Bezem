@@ -73,6 +73,11 @@ impl FileTime {
             self
         }
     }
+
+    /// A duration in 100 ns ticks, saturating at `u64::MAX` (sub-tick remainders truncate).
+    pub fn duration_to_ticks(d: Duration) -> u64 {
+        duration_to_ticks(d)
+    }
 }
 
 fn duration_to_ticks(d: Duration) -> u64 {

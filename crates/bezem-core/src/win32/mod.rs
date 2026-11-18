@@ -31,7 +31,6 @@ mod volume;
 
 pub use fs_impl::{Win32Dir, Win32Fs, Win32Item};
 pub(crate) use handle::OwnedHandle;
-#[allow(unused_imports)] // M1-STUB (B): used by KnownFolders::from_system
 pub(crate) use known_folders::SystemKnownFolders;
 
 use windows::Win32::Foundation::GetLastError;
