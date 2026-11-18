@@ -108,10 +108,16 @@ def check_unsafe_code(files, rep):
         rep.error(f"unsafe_code outside the allowed crate attributes: {s}", p, n)
     if len(allows) > 1:
         rep.error(f"#[allow(unsafe_code)] appears {len(allows)} times in {core_lib}; only once", core_lib)
-    # The single allow must sit on the `mod win32;` declaration (other attributes may follow).
+    # The single allow must sit on the `mod win32;` declaration (other attributes, possibly
+    # spanning several lines, may follow).
     for p, n in allows:
         rest = [l.strip() for i, l in files[p] if i > n]
-        nxt = next((s for s in rest if not s.startswith("#[")), "")
+        nxt, depth = "", 0
+        for s in rest:
+            if depth == 0 and not s.startswith("#["):
+                nxt = s
+                break
+            depth += s.count("[") - s.count("]")
         if nxt != "mod win32;":
             rep.error(f"#[allow(unsafe_code)] must apply to `mod win32;`, not `{nxt}`", p, n)
     ok = not bad and len(allows) <= 1
