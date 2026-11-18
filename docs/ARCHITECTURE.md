@@ -94,7 +94,7 @@ dependencies.
 | `report` | `ScanReport`, `DeletePlan`, `CleanSummary`, `SkipReason`. |
 | `log` | Deletion log (JSON Lines) writer and retention; `tracing` setup helpers. |
 | `config` | `Config` load/save (atomic), defaults, portable mode. |
-| `win32` | The **only** module with `unsafe`. Thin, safe wrappers: `OwnedHandle` RAII, `nt_open_relative`, `query_dir_batch`, `final_path`, `set_disposition_ex`, SCM, pipes, COM helpers. Each wrapper documents its invariants. |
+| `win32` | The **only** module with `unsafe`. Thin, safe wrappers: `OwnedHandle` RAII, typed handle roles, `nt_open_*`, `query_dir_batch`, `final_path`, `set_disposition_ex`, SCM, pipes, COM helpers. Each wrapper documents its invariants. |
 
 `bezem-core/src/lib.rs` uses `#![deny(unsafe_code)]` and `mod win32` carries `#[allow(unsafe_code)]`. (`forbid`
 cannot be relaxed locally, so `deny` is used in this one crate.) A CI step greps for `unsafe` outside
@@ -235,7 +235,7 @@ pub struct ResolvedRoot {
 
 /// Produced only by `SafetyPolicy::verify_root`. Holds an open directory handle.
 pub struct VerifiedRoot {
-    handle: win32::OwnedHandle,         // FILE_LIST_DIRECTORY | FILE_TRAVERSE | SYNCHRONIZE
+    handle: win32::fs::DirHandle,       // promoted from UnverifiedRoot by verify_root only
     final_path: WidePath,               // \\?\C:\Users\Ann\AppData\Local\Temp (normalized, long names)
     identity: FileIdentity,             // volume serial + FILE_ID_128
     base: AllowedBaseId,                // which allowlisted base it lies under
@@ -268,7 +268,9 @@ pub enum SkipReason {
     AccessDenied,
     ReparsePoint,
     HardLinked,             // NumberOfLinks > 1
-    CloudPlaceholder,       // RECALL_ON_DATA_ACCESS / RECALL_ON_OPEN / OFFLINE
+    CloudPlaceholder,       // OFFLINE / RECALL_ON_OPEN (enumeration only) / RECALL_ON_DATA_ACCESS /
+                            // PINNED / UNPINNED, or tag & 0xFFFF0FFF == IO_REPARSE_TAG_CLOUD,
+                            // or tag == IO_REPARSE_TAG_PROJFS, or a STATUS_CLOUD_FILE_* open error
     SystemFile,             // FILE_ATTRIBUTE_SYSTEM and !include_system
     ReadOnly,               // read-only and (!delete_readonly or FS lacks IGNORE_READONLY support)
     TooNew,                 // younger than min_age
@@ -278,6 +280,7 @@ pub enum SkipReason {
     OutsideRoot,            // final path check failed: target aborted, see SafetyViolation
     DeletePending,
     RecycleUnavailable,     // Recycle Bin mode, shell would delete permanently
+    UnsupportedName,        // enumerated name is not a valid PathComponent; never OutsideRoot
     FsError,                // anything else; Win32/NT code kept in the log record
 }
 ```
@@ -731,7 +734,8 @@ Resolution rules:
   (reported, never guessed). This rules out the classic `"%X%\Temp"` -> `"\Temp"` expansion bug: the code never
   concatenates strings, it pushes `PathComponent`s onto an already-validated absolute `WidePath` (8.3).
   `SHGetKnownFolderPath` returns the Win32 `C:\...` form, which `WidePath::parse_extended` rightly rejects, so
-  `resolve` needs a second entry point that splits that form into `PathComponent`s pushed onto `drive_root`. It must
+  the `win32` Known Folders wrapper splits that form into `PathComponent`s pushed onto `drive_root` and hands
+  `resolve` a `WidePath` (for `GetTempPath2W` after removing its trailing `\`). It must
   not reopen what `parse_extended` closes: only `X:\` with an ASCII letter, no `/` separators, no empty, `.` or `..`
   components, no prefixes, UNC or device paths.
 - The matching environment variable is read only as a cross-check; a mismatch is logged at `debug` and the API value
@@ -841,7 +845,7 @@ tools are a known local privilege-escalation primitive, so (c) is treated as a s
 | Empty / missing tokens | `%X%` expands to empty, giving `\Temp` (drive root of cwd) | Tokens come from APIs, empties are errors, and paths are built by component push onto an absolute validated base (7.1). Drive roots are protected paths. |
 | Alternate data streams | `file.txt:stream`, `$I30` names | `:` is rejected in every name component (template, profile names, enumerated names are never re-parsed). Enumeration does not list streams. |
 | Trailing dots/spaces, reserved names | `con`, `aux.txt`, `x.` | Extended-length NT paths and handle-relative opens bypass Win32 name normalization; these names are handled literally and safely. |
-| Cloud placeholders | Deleting a OneDrive placeholder triggers a download or cloud delete | Files with `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, `FILE_ATTRIBUTE_RECALL_ON_OPEN` or `FILE_ATTRIBUTE_OFFLINE` are skipped (`CloudPlaceholder`). OneDrive roots are protected paths. |
+| Cloud placeholders | Deleting a OneDrive placeholder triggers a download or cloud delete | Files with `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, `FILE_ATTRIBUTE_RECALL_ON_OPEN` (enumeration only), `FILE_ATTRIBUTE_OFFLINE`, `PINNED`/`UNPINNED`, or a cloud/ProjFS reparse tag are skipped (`CloudPlaceholder`); placeholders are exposed at startup and opens use `FILE_OPEN_NO_RECALL` (8.4). OneDrive roots are protected paths. |
 | Files in use | Deleting a temp file an app is writing | Leaf opens use share mode `FILE_SHARE_READ` only, so the open fails with a sharing violation if any other handle has write or delete access (`Locked`). Plus age thresholds and the running-app gate. |
 | Malicious definitions | Root `%LOCALAPPDATA%`, `**` everywhere, `requires_admin` to get elevated deletes | Validator (5.3), run-time root allowlist (8.3), community restrictions (8.6). Elevated worker accepts only built-in IDs (9.1). |
 | Runaway deletion due to a bug | A logic error selecting a huge tree | `max_entries_per_target` circuit breaker; a target whose plan exceeds it is aborted. The root itself is never deleted. |
@@ -892,9 +896,12 @@ verify_root(root, scope):
   3. h = CreateFileW(p, FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
                      FILE_SHARE_READ | FILE_SHARE_WRITE,                 // no SHARE_DELETE: pins the dir
                      OPEN_EXISTING,
-                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
+                     | FILE_FLAG_OPEN_NO_RECALL)
        NOT_FOUND -> Missing (Unavailable if !optional)
-  4. GetFileInformationByHandleEx(h, FileAttributeTagInfo): must be a directory, must not be a reparse point
+  4. info = GetFileInformationByHandleEx(h, FileAttributeTagInfo): must be a directory, and
+     win32::reparse_rejection(info) must be None: no reparse point of any tag, and no cloud placeholder
+     (OFFLINE / PINNED / UNPINNED / RECALL_ON_DATA_ACCESS even without a tag), the same rule as for children
      (ancestors of the root may be links, e.g. a relocated profile; the root itself and everything below may not)
   5. final = GetFinalPathNameByHandleW(h, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS)
      must start with \\?\<letter>:\ ; \\?\UNC\ and anything else -> reject
@@ -932,16 +939,20 @@ delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
   1. parent = dircache.get_or_open(e.dir):
        for each component c of the relative dir path, starting from root.handle:
          c is a PathComponent (8.3): the single name rule, stricter than '\\', '/', ':', NUL alone;
-         win32::nt_open_relative takes &PathComponent, so an unvalidated name cannot reach NtCreateFile
+         the win32::nt_open_* functions take &PathComponent, so an unvalidated name cannot reach NtCreateFile
          h = NtCreateFile(RootDirectory = <previous handle>, ObjectName = c,
                           DesiredAccess = FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
                           ShareAccess   = FILE_SHARE_READ | FILE_SHARE_WRITE,          // no SHARE_DELETE
                           Disposition   = FILE_OPEN,
                           Options       = FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
-                                        | FILE_SYNCHRONOUS_IO_NONALERT
+                                        | FILE_OPEN_NO_RECALL | FILE_SYNCHRONOUS_IO_NONALERT
                                         | (elevated ? FILE_OPEN_FOR_BACKUP_INTENT : 0),
                           OBJ_CASE_INSENSITIVE)
-         FileAttributeTagInfo(h): reparse point -> skip whole subtree (ReparsePoint)
+         inside win32::nt_open_dir: FileAttributeTagInformation(h); a reparse point is closed and
+         refused (STATUS_REPARSE_POINT_ENCOUNTERED -> ReparsePoint, or the Bezem cloud status ->
+         CloudPlaceholder) and the whole subtree is skipped; no DirHandle is ever minted for one.
+         Backup intent: the elevated worker enables SeBackupPrivilege only, never
+         SeRestorePrivilege, and only directory opens use it (delete and read opens never do).
        (handles are cached per worker thread in a small LRU, depth-first order keeps hit rate high)
 
   2. f = NtCreateFile(RootDirectory = parent, ObjectName = e.name,
@@ -949,16 +960,19 @@ delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
                       ShareAccess   = FILE_SHARE_READ,                                 // fail if anyone writes/deletes
                       Disposition   = FILE_OPEN,
                       Options       = FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
-                                    | FILE_SYNCHRONOUS_IO_NONALERT)
+                                    | FILE_OPEN_NO_RECALL | FILE_SYNCHRONOUS_IO_NONALERT)
        STATUS_SHARING_VIOLATION -> Locked
        STATUS_ACCESS_DENIED     -> AccessDenied
        STATUS_OBJECT_NAME_NOT_FOUND / PATH_NOT_FOUND -> Gone
        STATUS_DELETE_PENDING    -> DeletePending
-       STATUS_FILE_IS_A_DIRECTORY -> ChangedSinceScan
+       STATUS_FILE_IS_A_DIRECTORY / STATUS_NOT_A_DIRECTORY -> ChangedSinceScan
 
   3. GetFileInformationByHandleEx(f, FileAttributeTagInfo)
+       win32::is_cloud_placeholder(attrs, tag) -> CloudPlaceholder
+         (OFFLINE | RECALL_ON_DATA_ACCESS | PINNED | UNPINNED, or a CLOUD / PROJFS reparse tag;
+          RECALL_ON_OPEN is reported only by directory enumeration, so the scan checks it on the
+          DirEntry and it is never seen here)
        REPARSE_POINT -> ReparsePoint
-       RECALL_ON_DATA_ACCESS | RECALL_ON_OPEN | OFFLINE -> CloudPlaceholder
        SYSTEM && !t.include_system -> SystemFile
        READONLY && !t.delete_readonly -> ReadOnly
 
@@ -996,15 +1010,29 @@ delete_entry(root: &VerifiedRoot, e: &PlanEntry, t: &Target, dircache):
 
 **Empty directories** (`remove_empty_dirs = true`): after all files of a target are processed, candidate
 directories are visited in post-order. The cached handle for the directory is closed, then the directory is opened
-relative to its parent with `DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE`, `FILE_DIRECTORY_FILE |
-FILE_OPEN_REPARSE_POINT`, its identity and non-reparse status are checked, and `FileDispositionInfoEx` is set.
+relative to its parent with `DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE`, share `FILE_SHARE_READ |
+FILE_SHARE_WRITE`, `FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_OPEN_NO_RECALL`, its identity and non-reparse status are checked, and `FileDispositionInfoEx` is set.
 `STATUS_DIRECTORY_NOT_EMPTY` simply leaves it in place. The root is never a candidate.
 
 **Scan reuses the same primitives.** The walker opens directories exactly as in step 1 and reads entries with
 `GetFileInformationByHandleEx(FileIdExtdDirectoryInfo)` (64 KiB buffers), which returns long name, attributes,
-`ReparsePointTag`, sizes, times and the 128-bit `FileId` for every entry in bulk, without opening each file. On file
-systems without `FileIdExtdDirectoryInfo` (FAT/exFAT) it falls back to `FileIdBothDirectoryInfo` (64-bit ID,
-zero-extended) or, if that fails, `FileFullDirectoryInfo` with identity checks replaced by size + write time.
+`ReparsePointTag`, sizes, times and the 128-bit `FileId` for every entry in bulk, without opening each file. Until M2,
+roots on file systems without `FileIdInfo` / `FileIdExtdDirectoryInfo` (FAT/exFAT) fail verification. From M2 the
+walker falls back to `FileIdBothDirectoryInfo` (64-bit ID, zero-extended into bytes 0-7 of the 128-bit ID) or, if
+that fails, `FileFullDirectoryInfo` with identity checks replaced by size + write time.
+
+**Cloud placeholders.** At startup the process calls
+`RtlSetProcessPlaceholderCompatibilityMode(PHCM_EXPOSE_PLACEHOLDERS)` (`win32::expose_placeholders`), so
+placeholders show their reparse tag and attributes; if that fails, Bezem does not scan or clean. The call returns
+the previous mode on success; only a negative value is an error. It yields a `PlaceholdersExposed` token that
+`win32::open_root` requires, so no root can be opened without it. The elevated worker is a separate process and
+makes its own call. Before each target, `RtlQueryProcessPlaceholderCompatibilityMode` and
+`RtlQueryThreadPlaceholderCompatibilityMode` are re-checked (`win32::recheck_placeholders_exposed`): process mode
+`PHCM_EXPOSE_PLACEHOLDERS`, thread mode default or expose, otherwise the target is aborted. Because the thread mode
+is per thread, the check must hold on **every thread that opens files**: the walker/deleter rayon pool runs it in its
+`start_handler` (or at the start of each directory task), and a failure there fails closed (the pool's tasks
+refuse to open anything). Every open below a root
+adds `FILE_OPEN_NO_RECALL`, so no open hydrates a file.
 
 ### 8.5 Recycle Bin mode
 
