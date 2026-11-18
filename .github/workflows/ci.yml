@@ -294,6 +294,11 @@ jobs:
     name: MSRV check (windows-latest)
     runs-on: windows-latest
     timeout-minutes: 20
+    # This job proves the code compiles on the declared rust-version; lints are the pinned
+    # toolchain's job. Rust 1.85 reports `expect(dead_code)` on not-yet-used win32 items as
+    # unfulfilled where newer compilers do not, so warnings are not errors here.
+    env:
+      RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
