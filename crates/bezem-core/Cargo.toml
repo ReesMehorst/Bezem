@@ -9,3 +9,8 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+# Official Microsoft bindings (ARCHITECTURE.md section 14). Windows-only; enable only the API
+# families the `win32` module actually calls. Each workstream adds the features it needs.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", default-features = false, features = ["Win32_Foundation"] }

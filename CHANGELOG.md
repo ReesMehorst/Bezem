@@ -14,10 +14,14 @@ level changed.
 
 ### Added
 
+- `bezem-core`: validated path types (`WidePath`, `PathComponent`) for the safety layer: extended-length
+  `\\?\X:\` paths built by component push, component-wise case-insensitive containment.
 - Cargo workspace skeleton with the `bezem-core`, `bezem-cleaners`, `bezem-cli` and `bezem-gui`
   crates. `bezem --version` is the only working command.
 - Continuous integration on GitHub Actions (formatting, clippy, tests, dependency checks).
 - `cargo deny` policy: MIT-compatible licenses only, RustSec advisories, and a ban on network crates.
+- `bezem-core` `win32` module (the only place `unsafe` is allowed): the `windows` crate dependency,
+  an `OwnedHandle` that closes on drop, and error types that keep the API name and Win32 or NT code.
 - Pinned Rust toolchain (`rust-toolchain.toml`, 1.99.1) and a minimum supported Rust version of 1.85.
 - Dependabot configuration for Cargo dependencies, the Rust toolchain and GitHub Actions.
 - `CODEOWNERS`, and repository labels in `.github/labels.yml` with a workflow that syncs them.
